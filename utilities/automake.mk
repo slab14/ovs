@@ -5,7 +5,8 @@ bin_PROGRAMS += \
 	utilities/ovs-ofctl \
 	utilities/ovs-vsctl
 bin_SCRIPTS += utilities/ovs-docker \
-	utilities/ovs-pki
+	utilities/ovs-pki \
+	utilities/ovs-docker-remote
 if HAVE_PYTHON
 bin_SCRIPTS += \
 	utilities/ovs-dpctl-top \
@@ -44,6 +45,7 @@ EXTRA_DIST += \
 	utilities/ovs-ctl.in \
 	utilities/ovs-dev.py \
 	utilities/ovs-docker \
+	utilities/ovs-docker-remote \
 	utilities/ovs-dpctl-top.in \
 	utilities/ovs-kmod-ctl.in \
 	utilities/ovs-l3ping.in \
