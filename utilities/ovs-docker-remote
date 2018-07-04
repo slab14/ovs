@@ -101,12 +101,12 @@ add_port () {
 
     if [ -n "$MACADDRESS" ]; then
     EXEC_ID=`curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/containers/$CONTAINER/exec -d '{"AttachStdout": true, "Tty": true, "Privileged": true, "Cmd": ["ip", "link", "set", "dev", "'"$INTERFACE"'", "address", "'"$MACADDRESS"'"]}' | jq -r '.Id'`
-    curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/exec/$EXEC_ID/start -d '{"Detach": false, "Tty": true }'	    
+    curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/exec/$EXEC_ID/start -d '{"Detach": false, "Tty": true }'
     fi
 
     if [ -n "$GATEWAY" ]; then
     EXEC_ID=`curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/containers/$CONTAINER/exec -d '{"AttachStdout": true, "Tty": true, "Privileged": true, "Cmd": ["ip", "route", "add", "default", "via", "'"$GATEWAY"'"]}' | jq -r '.Id'`
-    curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/exec/$EXEC_ID/start -d '{"Detach": false, "Tty": true }'	    
+    curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/exec/$EXEC_ID/start -d '{"Detach": false, "Tty": true }'
     fi
 }
 
@@ -157,8 +157,8 @@ usage: ${UTIL} COMMAND
 
 Commands:
   add-port BRIDGE INTERFACE CONTAINER REMOTE_IP OVS_PORT DOCKER_PORT 
-  	   	    [--ipaddress="ADDRESS"] [--gateway=GATEWAY] 
-		    [--macaddress="MACADDRESS"] [--mtu=MTU]
+                    [--ipaddress="ADDRESS"] [--gateway=GATEWAY] 
+                    [--macaddress="MACADDRESS"] [--mtu=MTU]
 Adds INTERFACE inside CONTAINER and connects it as a port
                     in Open vSwitch BRIDGE. Optionally, sets ADDRESS on
                     INTERFACE. ADDRESS can include a '/' to represent network
