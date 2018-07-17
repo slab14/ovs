@@ -118,6 +118,11 @@ del_port () {
     OVS_PORT=$5
     DOCKER_PORT=$6
 
+    if [ "$#" -lt 6 ]; then
+	usage
+	exit 1
+    fi
+
     PORT=`sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --data=bare --no-heading --columns=name find interface external_ids:container_id="$CONTAINER" external_ids:container_iface="$INTERFACE"`
 
     if [ -z "$PORT" ]; then
@@ -135,6 +140,11 @@ del_ports () {
       IP=$3
       OVS_PORT=$4
       DOCKER_PORT=$5
+
+      if [ "$#" -lt 5 ]; then
+	  usage
+	  exit 1
+      fi
 
       PORTS=`sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --data=bare --no-heading --columns=name find interface external_ids:container_id="$CONTAINER"`
 
@@ -159,7 +169,7 @@ Commands:
   add-port BRIDGE INTERFACE CONTAINER REMOTE_IP OVS_PORT DOCKER_PORT 
                     [--ipaddress="ADDRESS"] [--gateway=GATEWAY] 
                     [--macaddress="MACADDRESS"] [--mtu=MTU]
-Adds INTERFACE inside CONTAINER and connects it as a port
+                    Adds INTERFACE inside CONTAINER and connects it as a port
                     in Open vSwitch BRIDGE. Optionally, sets ADDRESS on
                     INTERFACE. ADDRESS can include a '/' to represent network
                     prefix length. Optionally, sets a GATEWAY, MACADDRESS
@@ -186,7 +196,8 @@ search_path jq
 search_path curl
 
 if [ $# -eq 0 ]; then
-   exit 0
+    usage
+    exit 0
 fi
 
 case $1 in
@@ -205,8 +216,12 @@ case $1 in
         del_ports "$@"
         exit 0
         ;;
+     -h | --help)
+	 usage
+	 exit 0
+	 ;;
      *)
-        echo >&2 "$UTIL: unknown command"
+        echo >&2 "$UTIL: unknown command \"$1\" (use --help for help)"
         exit 1
         ;;
 esac
