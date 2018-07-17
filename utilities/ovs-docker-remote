@@ -125,8 +125,8 @@ del_port () {
     DOCKER_PORT=$6
 
     if [ "$#" -lt 6 ]; then
-	usage
-	exit 1
+        usage
+        exit 1
     fi
 
     PORT=`sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --data=bare --no-heading --columns=name find interface external_ids:container_id="$CONTAINER" external_ids:container_iface="$INTERFACE"`
@@ -137,8 +137,8 @@ del_port () {
 
     sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --if-exists del-port "$PORT"
     NET_ID=${PORT:3}
-    ##curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
     curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/networks/"$NET_ID"/disconnect -d '{"Container": "'"$CONTAINER"'", "Force": true}'
+    curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
 
 }
 
@@ -150,8 +150,8 @@ del_ports () {
       DOCKER_PORT=$5
 
       if [ "$#" -lt 5 ]; then
-	  usage
-	  exit 1
+          usage
+          exit 1
       fi
 
       PORTS=`sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --data=bare --no-heading --columns=name find interface external_ids:container_id="$CONTAINER"`
@@ -164,8 +164,8 @@ del_ports () {
           sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --if-exists del-port "$PORT"
           NET_ID=${PORT:3}
           echo "$NET_ID"
-          ##curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
           curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/networks/"$NET_ID"/disconnect -d '{"Container": "'"$CONTAINER"'", "Force": true}'
+          curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
       done
 }
 
@@ -226,9 +226,9 @@ case $1 in
         exit 0
         ;;
      -h | --help)
-	 usage
-	 exit 0
-	 ;;
+         usage
+         exit 0
+         ;;
      *)
         echo >&2 "$UTIL: unknown command \"$1\" (use --help for help)"
         exit 1
