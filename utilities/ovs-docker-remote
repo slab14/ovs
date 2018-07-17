@@ -22,7 +22,7 @@ add_port () {
      OVS_PORT=$5
      DOCKER_PORT=$6
 
-    if [  -z "$BRIDGE" ] || [ -z "$INTERFACE" ] || [ -z "$CONTAINER" ]; then
+    if [  -z "$BRIDGE" ] || [ -z "$INTERFACE" ] || [ -z "$CONTAINER" ] || [ -z "$IP" ] || [ -z "$OVS_PORT" ] || [ -z "$DOCKER_PORT" ]; then
         echo >&2 "Not enough arguments"
         exit 1
     fi
@@ -71,6 +71,11 @@ add_port () {
         exit 1
     fi
 
+    if [ -z "$PID" ]; then
+        echo "Failed to get PID of the container, ensure that Docker remote port is setup"
+        exit 1
+    fi
+
     # Create docker network id
     TEMP=`uuidgen | sed 's/-//g'`
     NET_NAME="${TEMP:0:13}"
@@ -87,7 +92,8 @@ add_port () {
     fi
 
     # Connect docker network to container
-    curl -s -X POST http://$IP:$DOCKER_PORT/networks/$NET_ID/connect -H "Content-Type: application/json" -d '{"Container": "'"$CONTAINER"'", "EndpointConfig": {"IPAMConfig": {"IPAddress": "10.1.2.1"}}}'
+    ##curl -s -X POST http://$IP:$DOCKER_PORT/networks/$NET_ID/connect -H "Content-Type: application/json" -d '{"Container": "'"$CONTAINER"'", "EndpointConfig": {"IPAMConfig": {"IPAddress": "10.1.2.1"}}}'
+    curl -s -X POST http://$IP:$DOCKER_PORT/networks/$NET_ID/connect -H "Content-Type: application/json" -d '{"Container": "'"$CONTAINER"'"}'
 
     if [ -n "$MTU" ]; then
     EXEC_ID=`curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/containers/$CONTAINER/exec -d '{"AttachStdout": true, "Tty": true, "Privileged": true, "Cmd": ["ip", "link", "set", "dev", "'"$INTERFACE"'", "mtu", "'"$MTU"'"]}' | jq -r '.Id'`
@@ -131,7 +137,9 @@ del_port () {
 
     sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --if-exists del-port "$PORT"
     NET_ID=${PORT:3}
-    curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
+    ##curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
+    curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/networks/"$NET_ID"/disconnect -d '{"Container": "'"$CONTAINER"'", "Force": true}'
+
 }
 
 del_ports () {
@@ -156,7 +164,8 @@ del_ports () {
           sudo ovs-vsctl --db=tcp:$IP:$OVS_PORT --if-exists del-port "$PORT"
           NET_ID=${PORT:3}
           echo "$NET_ID"
-          curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID" 
+          ##curl -s -X DELETE http://$IP:$DOCKER_PORT/networks/"$NET_ID"
+          curl -s -X POST -H "Content-Type: application/json" http://$IP:$DOCKER_PORT/v1.37/networks/"$NET_ID"/disconnect -d '{"Container": "'"$CONTAINER"'", "Force": true}'
       done
 }
 
