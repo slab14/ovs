@@ -48,6 +48,7 @@ static char *vhost_sock_dir = NULL;   /* Location of vhost-user sockets */
 static bool vhost_iommu_enabled = false; /* Status of vHost IOMMU support */
 static bool dpdk_initialized = false; /* Indicates successful initialization
                                        * of DPDK. */
+static bool per_port_memory = false; /* Status of per port memory support */
 
 static int
 process_vhost_flags(char *flag, const char *default_val, int size,
@@ -384,6 +385,11 @@ dpdk_init__(const struct smap *ovs_other_config)
     VLOG_INFO("IOMMU support for vhost-user-client %s.",
                vhost_iommu_enabled ? "enabled" : "disabled");
 
+    per_port_memory = smap_get_bool(ovs_other_config,
+                                    "per-port-memory", false);
+    VLOG_INFO("Per port memory for DPDK devices %s.",
+              per_port_memory ? "enabled" : "disabled");
+
     argv = grow_argv(&argv, 0, 1);
     argc = 1;
     argv[0] = xstrdup(ovs_get_program_name());
@@ -468,7 +474,23 @@ dpdk_init__(const struct smap *ovs_other_config)
         return false;
     }
 
-    rte_memzone_dump(stdout);
+    if (VLOG_IS_DBG_ENABLED()) {
+        size_t size;
+        char *response = NULL;
+        FILE *stream = open_memstream(&response, &size);
+
+        if (stream) {
+            rte_memzone_dump(stream);
+            fclose(stream);
+            if (size) {
+                VLOG_DBG("rte_memzone_dump:\n%s", response);
+            }
+            free(response);
+        } else {
+            VLOG_DBG("Could not dump memzone. Unable to open memstream: %s.",
+                     ovs_strerror(errno));
+        }
+    }
 
     /* We are called from the main thread here */
     RTE_PER_LCORE(_lcore_id) = NON_PMD_CORE_ID;
@@ -506,8 +528,8 @@ dpdk_init(const struct smap *ovs_other_config)
     const char *dpdk_init_val = smap_get_def(ovs_other_config, "dpdk-init",
                                              "false");
 
-    bool try_only = !strcmp(dpdk_init_val, "try");
-    if (!strcmp(dpdk_init_val, "true") || try_only) {
+    bool try_only = !strcasecmp(dpdk_init_val, "try");
+    if (!strcasecmp(dpdk_init_val, "true") || try_only) {
         static struct ovsthread_once once_enable = OVSTHREAD_ONCE_INITIALIZER;
 
         if (ovsthread_once_start(&once_enable)) {
@@ -539,6 +561,12 @@ bool
 dpdk_vhost_iommu_enabled(void)
 {
     return vhost_iommu_enabled;
+}
+
+bool
+dpdk_per_port_memory(void)
+{
+    return per_port_memory;
 }
 
 void

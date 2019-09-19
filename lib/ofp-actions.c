@@ -762,6 +762,7 @@ enum nx_action_controller2_prop_type {
     NXAC2PT_REASON,             /* uint8_t reason (OFPR_*), default 0. */
     NXAC2PT_USERDATA,           /* Data to copy into NXPINT_USERDATA. */
     NXAC2PT_PAUSE,              /* Flag to pause pipeline to resume later. */
+    NXAC2PT_METER_ID,           /* ovs_b32 meter (default NX_CTLR_NO_METER). */
 };
 
 /* The action structure for NXAST_CONTROLLER2 is "struct ext_action_header",
@@ -779,6 +780,7 @@ decode_NXAST_RAW_CONTROLLER(const struct nx_action_controller *nac,
     oc->max_len = ntohs(nac->max_len);
     oc->controller_id = ntohs(nac->controller_id);
     oc->reason = nac->reason;
+    oc->meter_id = NX_CTLR_NO_METER;
     ofpact_finish_CONTROLLER(out, &oc);
 
     return 0;
@@ -798,6 +800,7 @@ decode_NXAST_RAW_CONTROLLER2(const struct ext_action_header *eah,
     oc->ofpact.raw = NXAST_RAW_CONTROLLER2;
     oc->max_len = UINT16_MAX;
     oc->reason = OFPR_ACTION;
+    oc->meter_id = NX_CTLR_NO_METER;
 
     struct ofpbuf properties;
     ofpbuf_use_const(&properties, eah, ntohs(eah->len));
@@ -829,7 +832,7 @@ decode_NXAST_RAW_CONTROLLER2(const struct ext_action_header *eah,
         }
 
         case NXAC2PT_USERDATA:
-            out->size = start_ofs + OFPACT_CONTROLLER_SIZE;
+            out->size = start_ofs + sizeof(struct ofpact_controller);
             ofpbuf_put(out, payload.msg, ofpbuf_msgsize(&payload));
             oc = ofpbuf_at_assert(out, start_ofs, sizeof *oc);
             oc->userdata_len = ofpbuf_msgsize(&payload);
@@ -837,6 +840,10 @@ decode_NXAST_RAW_CONTROLLER2(const struct ext_action_header *eah,
 
         case NXAC2PT_PAUSE:
             oc->pause = true;
+            break;
+
+        case NXAC2PT_METER_ID:
+            error = ofpprop_parse_u32(&payload, &oc->meter_id);
             break;
 
         default:
@@ -860,6 +867,7 @@ encode_CONTROLLER(const struct ofpact_controller *controller,
 {
     if (controller->userdata_len
         || controller->pause
+        || controller->meter_id != NX_CTLR_NO_METER
         || controller->ofpact.raw == NXAST_RAW_CONTROLLER2) {
         size_t start_ofs = out->size;
         put_NXAST_CONTROLLER2(out);
@@ -880,6 +888,9 @@ encode_CONTROLLER(const struct ofpact_controller *controller,
         if (controller->pause) {
             ofpprop_put_flag(out, NXAC2PT_PAUSE);
         }
+        if (controller->meter_id != NX_CTLR_NO_METER) {
+            ofpprop_put_u32(out, NXAC2PT_METER_ID, controller->meter_id);
+        }
         pad_ofpat(out, start_ofs);
     } else {
         struct nx_action_controller *nac;
@@ -897,6 +908,7 @@ parse_CONTROLLER(char *arg, const struct ofpact_parse_params *pp)
     enum ofp_packet_in_reason reason = OFPR_ACTION;
     uint16_t controller_id = 0;
     uint16_t max_len = UINT16_MAX;
+    uint32_t meter_id = NX_CTLR_NO_METER;
     const char *userdata = NULL;
     bool pause = false;
 
@@ -929,6 +941,11 @@ parse_CONTROLLER(char *arg, const struct ofpact_parse_params *pp)
                 userdata = value;
             } else if (!strcmp(name, "pause")) {
                 pause = true;
+            } else if (!strcmp(name, "meter_id")) {
+                char *error = str_to_u32(value, &meter_id);
+                if (error) {
+                    return error;
+                }
             } else {
                 return xasprintf("unknown key \"%s\" parsing controller "
                                  "action", name);
@@ -936,7 +953,8 @@ parse_CONTROLLER(char *arg, const struct ofpact_parse_params *pp)
         }
     }
 
-    if (reason == OFPR_ACTION && controller_id == 0 && !userdata && !pause) {
+    if (reason == OFPR_ACTION && controller_id == 0 && !userdata && !pause
+        && meter_id == NX_CTLR_NO_METER) {
         struct ofpact_output *output;
 
         output = ofpact_put_OUTPUT(pp->ofpacts);
@@ -950,6 +968,7 @@ parse_CONTROLLER(char *arg, const struct ofpact_parse_params *pp)
         controller->reason = reason;
         controller->controller_id = controller_id;
         controller->pause = pause;
+        controller->meter_id = meter_id;
 
         if (userdata) {
             size_t start_ofs = pp->ofpacts->size;
@@ -984,7 +1003,7 @@ format_CONTROLLER(const struct ofpact_controller *a,
                   const struct ofpact_format_params *fp)
 {
     if (a->reason == OFPR_ACTION && !a->controller_id && !a->userdata_len
-        && !a->pause) {
+        && !a->pause && a->meter_id == NX_CTLR_NO_METER) {
         ds_put_format(fp->s, "%sCONTROLLER:%s%"PRIu16,
                       colors.special, colors.end, a->max_len);
     } else {
@@ -1013,6 +1032,10 @@ format_CONTROLLER(const struct ofpact_controller *a,
         }
         if (a->pause) {
             ds_put_format(fp->s, "%spause%s,", colors.value, colors.end);
+        }
+        if (a->meter_id != NX_CTLR_NO_METER) {
+            ds_put_format(fp->s, "%smeter_id=%s%"PRIu32",",
+                          colors.param, colors.end, a->meter_id);
         }
         ds_chomp(fp->s, ',');
         ds_put_format(fp->s, "%s)%s", colors.paren, colors.end);
@@ -1388,12 +1411,13 @@ decode_bundle(bool load, const struct nx_action_bundle *nab,
                      load ? "bundle_load" : "bundle", slaves_size,
                      bundle->n_slaves * sizeof(ovs_be16), bundle->n_slaves);
         error = OFPERR_OFPBAC_BAD_LEN;
-    }
-
-    for (i = 0; i < bundle->n_slaves; i++) {
-        ofp_port_t ofp_port = u16_to_ofp(ntohs(((ovs_be16 *)(nab + 1))[i]));
-        ofpbuf_put(ofpacts, &ofp_port, sizeof ofp_port);
-        bundle = ofpacts->header;
+    } else {
+        for (i = 0; i < bundle->n_slaves; i++) {
+            ofp_port_t ofp_port
+                = u16_to_ofp(ntohs(((ovs_be16 *)(nab + 1))[i]));
+            ofpbuf_put(ofpacts, &ofp_port, sizeof ofp_port);
+            bundle = ofpacts->header;
+        }
     }
 
     ofpact_finish_BUNDLE(ofpacts, &bundle);
@@ -4748,7 +4772,7 @@ learn_min_len(uint16_t header)
         min_len += sizeof(ovs_be32); /* src_field */
         min_len += sizeof(ovs_be16); /* src_ofs */
     } else {
-        min_len += DIV_ROUND_UP(n_bits, 16);
+        min_len += 2 * DIV_ROUND_UP(n_bits, 16);
     }
     if (dst_type == NX_LEARN_DST_MATCH ||
         dst_type == NX_LEARN_DST_LOAD) {
@@ -5409,6 +5433,9 @@ decode_NXAST_RAW_CLONE(const struct ext_action_header *eah,
                                             ofp_version,
                                             1u << OVSINST_OFPIT11_APPLY_ACTIONS,
                                             out, 0, vl_mff_map, tlv_bitmap);
+    if (error) {
+        return error;
+    }
     clone = ofpbuf_push_uninit(out, sizeof *clone);
     out->header = &clone->ofpact;
     ofpact_finish_CLONE(out, &clone);
@@ -5963,7 +5990,7 @@ decode_NXAST_RAW_CT(const struct nx_action_conntrack *nac,
                                             out, OFPACT_CT, vl_mff_map,
                                             tlv_bitmap);
     if (error) {
-        goto out;
+        return error;
     }
 
     conntrack = ofpbuf_push_uninit(out, sizeof(*conntrack));
@@ -7001,7 +7028,6 @@ ofpacts_pull_openflow_actions__(struct ofpbuf *openflow,
                                 uint64_t *ofpacts_tlv_bitmap)
 {
     const struct ofp_action_header *actions;
-    size_t orig_size = ofpacts->size;
     enum ofperr error;
 
     if (actions_len % OFP_ACTION_ALIGN != 0) {
@@ -7020,23 +7046,20 @@ ofpacts_pull_openflow_actions__(struct ofpbuf *openflow,
 
     error = ofpacts_decode(actions, actions_len, version, vl_mff_map,
                            ofpacts_tlv_bitmap, ofpacts);
-    if (error) {
-        ofpacts->size = orig_size;
-        return error;
+    if (!error) {
+        error = ofpacts_verify(ofpacts->data, ofpacts->size, allowed_ovsinsts,
+                               outer_action);
     }
-
-    error = ofpacts_verify(ofpacts->data, ofpacts->size, allowed_ovsinsts,
-                           outer_action);
     if (error) {
-        ofpacts->size = orig_size;
+        ofpbuf_clear(ofpacts);
     }
     return error;
 }
 
 /* Attempts to convert 'actions_len' bytes of OpenFlow actions from the front
  * of 'openflow' into ofpacts.  On success, appends the converted actions to
- * 'ofpacts'; on failure, 'ofpacts' is unchanged (but might be reallocated) .
- * Returns 0 if successful, otherwise an OpenFlow error.
+ * 'ofpacts'; on failure, clears 'ofpacts'.  Returns 0 if successful, otherwise
+ * an OpenFlow error.
  *
  * Actions are processed according to their OpenFlow version which
  * is provided in the 'version' parameter.
@@ -8896,11 +8919,16 @@ static char * OVS_WARN_UNUSED_RESULT
 ofpacts_parse(char *str, const struct ofpact_parse_params *pp,
               bool allow_instructions, enum ofpact_type outer_action)
 {
+    if (pp->depth >= MAX_OFPACT_PARSE_DEPTH) {
+        return xstrdup("Action nested too deeply");
+    }
+    CONST_CAST(struct ofpact_parse_params *, pp)->depth++;
     uint32_t orig_size = pp->ofpacts->size;
     char *error = ofpacts_parse__(str, pp, allow_instructions, outer_action);
     if (error) {
         pp->ofpacts->size = orig_size;
     }
+    CONST_CAST(struct ofpact_parse_params *, pp)->depth--;
     return error;
 }
 
@@ -9029,7 +9057,8 @@ ofpact_hdrs_equal(const struct ofpact_hdrs *a,
 static uint32_t
 ofpact_hdrs_hash(const struct ofpact_hdrs *hdrs)
 {
-    return hash_2words(hdrs->vendor, (hdrs->type << 16) | hdrs->ofp_version);
+    return hash_2words(hdrs->vendor,
+                       ((uint32_t) hdrs->type << 16) | hdrs->ofp_version);
 }
 
 #include "ofp-actions.inc2"

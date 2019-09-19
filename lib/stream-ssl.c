@@ -1157,7 +1157,7 @@ stream_ssl_set_key_and_cert(const char *private_key_file,
                             const char *certificate_file)
 {
     if (update_ssl_config(&private_key, private_key_file)
-        || update_ssl_config(&certificate, certificate_file)) {
+        && update_ssl_config(&certificate, certificate_file)) {
         stream_ssl_set_certificate_file__(certificate_file);
         stream_ssl_set_private_key_file__(private_key_file);
     }
@@ -1188,8 +1188,13 @@ stream_ssl_set_protocols(const char *arg)
     }
 
     /* Start with all the flags off and turn them on as requested. */
-    long protocol_flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1;
-    protocol_flags |= SSL_OP_NO_TLSv1_1 | SSL_OP_NO_TLSv1_2;
+#ifndef SSL_OP_NO_SSL_MASK
+    /* For old OpenSSL without this macro, this is the correct value.  */
+#define SSL_OP_NO_SSL_MASK (SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | \
+                            SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1 | \
+                            SSL_OP_NO_TLSv1_2)
+#endif
+    long protocol_flags = SSL_OP_NO_SSL_MASK;
 
     char *s = xstrdup(arg);
     char *save_ptr = NULL;

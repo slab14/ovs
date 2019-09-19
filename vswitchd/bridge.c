@@ -62,6 +62,7 @@
 #include "sset.h"
 #include "system-stats.h"
 #include "timeval.h"
+#include "tnl-ports.h"
 #include "util.h"
 #include "unixctl.h"
 #include "lib/vswitch-idl.h"
@@ -3607,7 +3608,8 @@ bridge_configure_remotes(struct bridge *br,
         ofproto_set_extra_in_band_remotes(br->ofproto, managers, n_managers);
     }
 
-    n_controllers = bridge_get_controllers(br, &controllers);
+    n_controllers = (ofproto_get_flow_restore_wait() ? 0
+                     : bridge_get_controllers(br, &controllers));
 
     ocs = xmalloc((n_controllers + 1) * sizeof *ocs);
     n_ocs = 0;
@@ -4347,6 +4349,8 @@ iface_destroy__(struct iface *iface)
 
         ovs_list_remove(&iface->port_elem);
         hmap_remove(&br->iface_by_name, &iface->name_node);
+
+        tnl_port_map_delete_ipdev(netdev_get_name(iface->netdev));
 
         /* The user is changing configuration here, so netdev_remove needs to be
          * used as opposed to netdev_close */

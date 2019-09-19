@@ -7,14 +7,14 @@ bin_PROGRAMS += \
 bin_SCRIPTS += utilities/ovs-docker \
 	utilities/ovs-pki \
 	utilities/ovs-docker-remote
-if HAVE_PYTHON
+	utilities/ovs-pcap \
+	utilities/ovs-tcpdump \
+	utilities/ovs-tcpundump
+if HAVE_PYTHON2
 bin_SCRIPTS += \
 	utilities/ovs-dpctl-top \
 	utilities/ovs-l3ping \
 	utilities/ovs-parse-backtrace \
-	utilities/ovs-pcap \
-	utilities/ovs-tcpdump \
-	utilities/ovs-tcpundump \
 	utilities/ovs-test \
 	utilities/ovs-vlan-test
 endif

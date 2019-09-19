@@ -1520,6 +1520,7 @@ add_internal_flows(struct ofproto_dpif *ofproto)
     controller->max_len = UINT16_MAX;
     controller->controller_id = 0;
     controller->reason = OFPR_IMPLICIT_MISS;
+    controller->meter_id = NX_CTLR_NO_METER;
     ofpact_finish_CONTROLLER(&ofpacts, &controller);
 
     error = add_internal_miss_flow(ofproto, id++, &ofpacts,
@@ -5051,17 +5052,28 @@ nxt_resume(struct ofproto *ofproto_,
            const struct ofputil_packet_in_private *pin)
 {
     struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofproto_);
+    struct dpif_flow_stats stats;
+    struct xlate_cache xcache;
+    struct flow flow;
+    xlate_cache_init(&xcache);
 
     /* Translate pin into datapath actions. */
     uint64_t odp_actions_stub[1024 / 8];
     struct ofpbuf odp_actions = OFPBUF_STUB_INITIALIZER(odp_actions_stub);
     enum slow_path_reason slow;
-    enum ofperr error = xlate_resume(ofproto, pin, &odp_actions, &slow);
+    enum ofperr error = xlate_resume(ofproto, pin, &odp_actions, &slow,
+                                     &flow, &xcache);
 
     /* Steal 'pin->packet' and put it into a dp_packet. */
     struct dp_packet packet;
     dp_packet_init(&packet, pin->base.packet_len);
     dp_packet_put(&packet, pin->base.packet, pin->base.packet_len);
+
+    /* Run the side effects from the xcache. */
+    dpif_flow_stats_extract(&flow, &packet, time_msec(), &stats);
+    ovs_mutex_lock(&ofproto_mutex);
+    ofproto_dpif_xcache_execute(ofproto, &xcache, &stats);
+    ovs_mutex_unlock(&ofproto_mutex);
 
     pkt_metadata_from_flow(&packet.md, &pin->base.flow_metadata.flow);
 
@@ -5242,6 +5254,69 @@ ofproto_unixctl_fdb_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
                       name, e->vlan, ETH_ADDR_ARGS(e->mac),
                       mac_entry_age(ofproto->ml, e));
     }
+    ovs_rwlock_unlock(&ofproto->ml->rwlock);
+    unixctl_command_reply(conn, ds_cstr(&ds));
+    ds_destroy(&ds);
+}
+
+static void
+ofproto_unixctl_fdb_stats_clear(struct unixctl_conn *conn, int argc,
+                                const char *argv[], void *aux OVS_UNUSED)
+{
+    struct ofproto_dpif *ofproto;
+
+    if (argc > 1) {
+        ofproto = ofproto_dpif_lookup_by_name(argv[1]);
+        if (!ofproto) {
+            unixctl_command_reply_error(conn, "no such bridge");
+            return;
+        }
+        ovs_rwlock_wrlock(&ofproto->ml->rwlock);
+        mac_learning_clear_statistics(ofproto->ml);
+        ovs_rwlock_unlock(&ofproto->ml->rwlock);
+    } else {
+        HMAP_FOR_EACH (ofproto, all_ofproto_dpifs_by_name_node,
+                       &all_ofproto_dpifs_by_name) {
+            ovs_rwlock_wrlock(&ofproto->ml->rwlock);
+            mac_learning_clear_statistics(ofproto->ml);
+            ovs_rwlock_unlock(&ofproto->ml->rwlock);
+        }
+    }
+
+    unixctl_command_reply(conn, "statistics successfully cleared");
+}
+
+static void
+ofproto_unixctl_fdb_stats_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
+                               const char *argv[], void *aux OVS_UNUSED)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct ofproto_dpif *ofproto;
+    ofproto = ofproto_dpif_lookup_by_name(argv[1]);
+    if (!ofproto) {
+        unixctl_command_reply_error(conn, "no such bridge");
+        return;
+    }
+
+    ds_put_format(&ds, "Statistics for bridge \"%s\":\n", argv[1]);
+    ovs_rwlock_rdlock(&ofproto->ml->rwlock);
+
+    ds_put_format(&ds, "  Current/maximum MAC entries in the table: %"
+                  PRIuSIZE"/%"PRIuSIZE"\n",
+                  hmap_count(&ofproto->ml->table), ofproto->ml->max_entries);
+    ds_put_format(&ds,
+                  "  Total number of learned MAC entries     : %"PRIu64"\n",
+                  ofproto->ml->total_learned);
+    ds_put_format(&ds,
+                  "  Total number of expired MAC entries     : %"PRIu64"\n",
+                  ofproto->ml->total_expired);
+    ds_put_format(&ds,
+                  "  Total number of evicted MAC entries     : %"PRIu64"\n",
+                  ofproto->ml->total_evicted);
+    ds_put_format(&ds,
+                  "  Total number of port moved MAC entries  : %"PRIu64"\n",
+                  ofproto->ml->total_moved);
+
     ovs_rwlock_unlock(&ofproto->ml->rwlock);
     unixctl_command_reply(conn, ds_cstr(&ds));
     ds_destroy(&ds);
@@ -5737,6 +5812,10 @@ ofproto_unixctl_init(void)
                              ofproto_unixctl_fdb_flush, NULL);
     unixctl_command_register("fdb/show", "bridge", 1, 1,
                              ofproto_unixctl_fdb_show, NULL);
+    unixctl_command_register("fdb/stats-clear", "[bridge]", 0, 1,
+                             ofproto_unixctl_fdb_stats_clear, NULL);
+    unixctl_command_register("fdb/stats-show", "bridge", 1, 1,
+                             ofproto_unixctl_fdb_stats_show, NULL);
     unixctl_command_register("mdb/flush", "[bridge]", 0, 1,
                              ofproto_unixctl_mcast_snooping_flush, NULL);
     unixctl_command_register("mdb/show", "bridge", 1, 1,
@@ -5747,7 +5826,8 @@ ofproto_unixctl_init(void)
                              NULL);
     unixctl_command_register("dpif/show-dp-features", "bridge", 1, 1,
                              ofproto_unixctl_dpif_show_dp_features, NULL);
-    unixctl_command_register("dpif/dump-flows", "[-m] [--names | --no-nmaes] bridge", 1, INT_MAX,
+    unixctl_command_register("dpif/dump-flows",
+                             "[-m] [--names | --no-names] bridge", 1, INT_MAX,
                              ofproto_unixctl_dpif_dump_flows, NULL);
     unixctl_command_register("dpif/set-dp-features", "bridge", 1, 3 ,
                              ofproto_unixctl_dpif_set_dp_features, NULL);
@@ -5883,15 +5963,15 @@ meter_set(struct ofproto *ofproto_, ofproto_meter_id *meter_id,
     /* Provider ID unknown. Use backer to allocate a new DP meter */
     if (meter_id->uint32 == UINT32_MAX) {
         if (!ofproto->backer->meter_ids) {
-            return EFBIG; /* Datapath does not support meter.  */
+            return OFPERR_OFPMMFC_OUT_OF_METERS; /* Meters not supported. */
         }
 
         if(!id_pool_alloc_id(ofproto->backer->meter_ids, &meter_id->uint32)) {
-            return ENOMEM; /* Can't allocate a DP meter. */
+            return OFPERR_OFPMMFC_OUT_OF_METERS; /* Can't allocate meter. */
         }
     }
 
-    switch (dpif_meter_set(ofproto->backer->dpif, meter_id, config)) {
+    switch (dpif_meter_set(ofproto->backer->dpif, *meter_id, config)) {
     case 0:
         return 0;
     case EFBIG: /* meter_id out of range */

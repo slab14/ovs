@@ -287,6 +287,8 @@ ip6.src == ::1 => ip6.src == 0x1
 inport == "eth0"
 !(inport != "eth0") => inport == "eth0"
 
+(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) => 0
+
 ip4.src == "eth0" => Integer field ip4.src is not compatible with string constant.
 inport == 1 => String field inport is not compatible with integer constant.
 ip4.src = 1.2.3.4 => Syntax error at `=' expecting relational operator.
@@ -353,6 +355,10 @@ eth.dst[40] x => Syntax error at `x' expecting end of input.
 
 ip4.src == {1.2.3.4, $set1, $unknownset} => Syntax error at `$unknownset' expecting address set name.
 eth.src == {$set3, badmac, 00:00:00:00:00:01} => Syntax error at `badmac' expecting constant.
+
+((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((())))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) => Parentheses nested too deeply.
+
+ct_label > $set4 => Only == and != operators may be used to compare a field against an empty value set.
 ]])
 sed 's/ =>.*//' test-cases.txt > input.txt
 sed 's/.* => //' test-cases.txt > expout
@@ -1100,9 +1106,9 @@ put_arp(inport, arp.spa, arp.sha);
 # put_dhcp_opts
 reg1[0] = put_dhcp_opts(offerip = 1.2.3.4, router = 10.0.0.1);
     encodes as controller(userdata=00.00.00.02.00.00.00.00.00.01.de.10.00.00.00.40.01.02.03.04.03.04.0a.00.00.01,pause)
-reg2[5] = put_dhcp_opts(offerip=10.0.0.4,router=10.0.0.1,netmask=255.255.254.0,mtu=1400,domain="ovn.org");
-    formats as reg2[5] = put_dhcp_opts(offerip = 10.0.0.4, router = 10.0.0.1, netmask = 255.255.254.0, mtu = 1400, domain = "ovn.org");
-    encodes as controller(userdata=00.00.00.02.00.00.00.00.00.01.de.10.00.00.00.25.0a.00.00.04.03.04.0a.00.00.01.01.04.ff.ff.fe.00.1a.02.05.78.0f.07.6f.76.6e.2e.6f.72.67,pause)
+reg2[5] = put_dhcp_opts(offerip=10.0.0.4,router=10.0.0.1,netmask=255.255.254.0,mtu=1400,domain="ovn.org",wpad="https://example.org");
+    formats as reg2[5] = put_dhcp_opts(offerip = 10.0.0.4, router = 10.0.0.1, netmask = 255.255.254.0, mtu = 1400, domain = "ovn.org", wpad = "https://example.org");
+    encodes as controller(userdata=00.00.00.02.00.00.00.00.00.01.de.10.00.00.00.25.0a.00.00.04.03.04.0a.00.00.01.01.04.ff.ff.fe.00.1a.02.05.78.0f.07.6f.76.6e.2e.6f.72.67.fc.13.68.74.74.70.73.3a.2f.2f.65.78.61.6d.70.6c.65.2e.6f.72.67,pause)
 reg0[15] = put_dhcp_opts(offerip=10.0.0.4,router=10.0.0.1,netmask=255.255.255.0,mtu=1400,ip_forward_enable=1,default_ttl=121,dns_server={8.8.8.8,7.7.7.7},classless_static_route={30.0.0.0/24,10.0.0.4,40.0.0.0/16,10.0.0.6,0.0.0.0/0,10.0.0.1},ethernet_encap=1,router_discovery=0);
     formats as reg0[15] = put_dhcp_opts(offerip = 10.0.0.4, router = 10.0.0.1, netmask = 255.255.255.0, mtu = 1400, ip_forward_enable = 1, default_ttl = 121, dns_server = {8.8.8.8, 7.7.7.7}, classless_static_route = {30.0.0.0/24, 10.0.0.4, 40.0.0.0/16, 10.0.0.6, 0.0.0.0/0, 10.0.0.1}, ethernet_encap = 1, router_discovery = 0);
     encodes as controller(userdata=00.00.00.02.00.00.00.00.00.01.de.10.00.00.00.6f.0a.00.00.04.03.04.0a.00.00.01.01.04.ff.ff.ff.00.1a.02.05.78.13.01.01.17.01.79.06.08.08.08.08.08.07.07.07.07.79.14.18.1e.00.00.0a.00.00.04.10.28.00.0a.00.00.06.00.0a.00.00.01.24.01.01.1f.01.00,pause)
@@ -1224,6 +1230,25 @@ set_meter(100, 1000, );
 set_meter(4294967295, 4294967295);
     encodes as meter:3
 
+# log
+log(verdict=allow, severity=warning);
+    encodes as controller(userdata=00.00.00.07.00.00.00.00.00.04)
+log(name="test1", verdict=drop, severity=info);
+    encodes as controller(userdata=00.00.00.07.00.00.00.00.01.06.74.65.73.74.31)
+log(verdict=drop, severity=info, meter="meter1");
+    encodes as controller(userdata=00.00.00.07.00.00.00.00.01.06,meter_id=4)
+log(name="test1", verdict=drop, severity=info, meter="meter1");
+    encodes as controller(userdata=00.00.00.07.00.00.00.00.01.06.74.65.73.74.31,meter_id=4)
+log(verdict=drop);
+    formats as log(verdict=drop, severity=info);
+    encodes as controller(userdata=00.00.00.07.00.00.00.00.01.06)
+log(verdict=bad_verdict, severity=info);
+    Syntax error at `bad_verdict' unknown verdict.
+log(verdict=drop, severity=bad_severity);
+    Syntax error at `bad_severity' unknown severity.
+log(severity=notice);
+    Syntax error at `;' expecting verdict.
+
 # put_nd_ra_opts
 reg1[0] = put_nd_ra_opts(addr_mode = "slaac", mtu = 1500, prefix = aef0::/64, slla = ae:01:02:03:04:05);
     encodes as controller(userdata=00.00.00.08.00.00.00.00.00.01.de.10.00.00.00.40.86.00.00.00.ff.00.ff.ff.00.00.00.00.00.00.00.00.05.01.00.00.00.00.05.dc.03.04.40.c0.ff.ff.ff.ff.ff.ff.ff.ff.00.00.00.00.ae.f0.00.00.00.00.00.00.00.00.00.00.00.00.00.00.01.01.ae.01.02.03.04.05,pause)
@@ -1237,9 +1262,11 @@ reg1[0] = put_nd_ra_opts(addr_mode = "dhcpv6_stateless", slla = ae:01:02:03:04:0
 reg1[0] = put_nd_ra_opts(addr_mode = "slaac", mtu = 1500, prefix = aef0::/64);
     slla option not present
 reg1[0] = put_nd_ra_opts(addr_mode = "dhcpv6_stateful", mtu = 1450, prefix = aef0::/64, prefix = bef0::/64, slla = ae:01:02:03:04:10);
-    prefix option can't be set when address mode is dhcpv6_stateful.
+    encodes as controller(userdata=00.00.00.08.00.00.00.00.00.01.de.10.00.00.00.40.86.00.00.00.ff.80.ff.ff.00.00.00.00.00.00.00.00.05.01.00.00.00.00.05.aa.03.04.40.80.ff.ff.ff.ff.ff.ff.ff.ff.00.00.00.00.ae.f0.00.00.00.00.00.00.00.00.00.00.00.00.00.00.03.04.40.80.ff.ff.ff.ff.ff.ff.ff.ff.00.00.00.00.be.f0.00.00.00.00.00.00.00.00.00.00.00.00.00.00.01.01.ae.01.02.03.04.10,pause)
+    has prereqs ip6
 reg1[0] = put_nd_ra_opts(addr_mode = "dhcpv6_stateful", mtu = 1450, prefix = aef0::/64, prefix = bef0::/64, slla = ae:01:02:03:04:10);
-    prefix option can't be set when address mode is dhcpv6_stateful.
+    encodes as controller(userdata=00.00.00.08.00.00.00.00.00.01.de.10.00.00.00.40.86.00.00.00.ff.80.ff.ff.00.00.00.00.00.00.00.00.05.01.00.00.00.00.05.aa.03.04.40.80.ff.ff.ff.ff.ff.ff.ff.ff.00.00.00.00.ae.f0.00.00.00.00.00.00.00.00.00.00.00.00.00.00.03.04.40.80.ff.ff.ff.ff.ff.ff.ff.ff.00.00.00.00.be.f0.00.00.00.00.00.00.00.00.00.00.00.00.00.00.01.01.ae.01.02.03.04.10,pause)
+    has prereqs ip6
 reg1[0] = put_nd_ra_opts(addr_mode = "slaac", slla = ae:01:02:03:04:10);
     prefix option needs to be set when address mode is slaac/dhcpv6_stateless.
 reg1[0] = put_nd_ra_opts(addr_mode = "dhcpv6_stateless", slla = ae:01:02:03:04:10);
@@ -2652,9 +2679,10 @@ test_arp() {
 # 5. Router replies to query for its MAC address from any random IP address
 #    in its subnet.
 #
-# 6. Router replies to query for its MAC address from another subnet.
+# 6. No reply to query for IP address other than router IP.
 #
-# 7. No reply to query for IP address other than router IP.
+# 7. No reply to query from another subnet.
+: > mac_bindings.expected
 for i in 1 2 3; do
   for j in 1 2 3; do
     for k in 1 2 3; do
@@ -2663,10 +2691,37 @@ for i in 1 2 3; do
       rip=`ip_to_hex 192 168 $i$j 254`   # Router IP
       rmac=00000000ff$i$j                # Router MAC
       otherip=`ip_to_hex 192 168 $i$j 55` # Some other IP in subnet
-      test_arp $i$j$k $smac $sip        $rip        $rmac #4
-      test_arp $i$j$k $smac $otherip    $rip        $rmac #5
-      test_arp $i$j$k $smac 0a123456    $rip        $rmac #6
-      test_arp $i$j$k $smac $sip        $otherip          #7
+      externalip=`ip_to_hex 1 2 3 4`      # Some other IP not in subnet
+
+      test_arp $i$j$k $smac $sip        $rip        $rmac      #4
+      test_arp $i$j$k $smac $otherip    $rip        $rmac      #5
+      test_arp $i$j$k $smac $sip        $otherip               #6
+
+      # When rip is 192.168.33.254, ARP request from externalip won't be
+      # filtered, because 192.168.33.254 is configured to switch peer port
+      # for lrp33.
+      lrp33_rsp=
+      if test $i = 3 && test $j = 3; then
+        lrp33_rsp=$rmac
+      fi
+      test_arp $i$j$k $smac $externalip $rip        $lrp33_rsp #7
+
+      # MAC binding should be learned from ARP request.
+      host_mac_pretty=f0:00:00:00:0$i:$j$k
+
+      host_ip_pretty=192.168.$i$j.$k
+      echo lrp$i$j,$host_ip_pretty,$host_mac_pretty >> mac_bindings.expected
+
+      # mac_binding is learned and overwritten so only the last one remains.
+      if test $k = 3; then
+          # lrp33 will not learn from ARP request, because 192.168.33.254 is
+          # configured to switch peer port for lrp33.
+          if test $i != 3 || test $j != 3; then
+              host_ip_pretty=192.168.$i$j.55
+              echo lrp$i$j,$host_ip_pretty,$host_mac_pretty >> mac_bindings.expected
+          fi
+      fi
+
     done
   done
 done
@@ -2681,7 +2736,6 @@ sleep 1
 #    Here, the $s is the VIF that originated the ARP request and $d is
 #    the VIF that sends the ARP reply, which is somewhat backward but
 #    it means that $s and $d are the same as #3.
-: > mac_bindings.expected
 for is in 1 2 3; do
   for js in 1 2 3; do
     for ks in 1 2 3; do
@@ -2783,6 +2837,206 @@ AT_CHECK_UNQUOTED([sort < mac_bindings], [0], [`sort < mac_bindings.expected`
 
 # Gracefully terminate daemons
 OVN_CLEANUP([hv1], [hv2], [hv3])
+
+AT_CLEANUP
+
+AT_SETUP([ovn -- IP relocation using GARP request])
+AT_SKIP_IF([test $HAVE_PYTHON = no])
+ovn_start
+
+# Logical network:
+#
+# Two logical switches ls1, ls2.
+# One logical router lr0 connected to ls[12],
+# with 2 subnets, 1 per logical switch:
+#
+#    lrp1 on ls1 for subnet 192.168.1.1/24
+#    lrp2 on ls2 for subnet 192.168.2.1/24
+#
+# 4 VIFs, 2 per LS lp[12][12], first digit being LS.
+# VIFs' fixed IP addresses are 192.168.[12].1[12].
+#
+# There is a secondary IP 192.168.1.100 that is unknown in NB and learned
+# through ARP only, and it can move between lp11 and lp12.
+#
+ovn-nbctl lr-add lr0
+for i in 1 2 ; do
+    ovn-nbctl ls-add ls$i
+    ovn-nbctl lrp-add lr0 lrp$i 00:00:00:00:ff:0$i 192.168.$i.1/24
+    ovn-nbctl \
+        -- lsp-add ls$i lrp$i-attachment \
+        -- set Logical_Switch_Port lrp$i-attachment type=router \
+                         options:router-port=lrp$i \
+                         addresses=router
+    for j in 1 2; do
+        ovn-nbctl \
+            -- lsp-add ls$i lp$i$j \
+            -- lsp-set-addresses lp$i$j \
+               "f0:00:00:00:00:$i$j 192.168.$i.1$j"
+    done
+done
+
+# Physical network:
+# 2 hypervisors hv[12], lp?1 on hv1, lp?2 on hv2.
+
+# Given the name of a logical port, prints the name of the hypervisor
+# on which it is located, e.g. "vif_to_hv 12" yields 2.
+vif_to_hv() {
+    echo ${1#?}
+}
+
+# Given the name of a logical port, prints the name of its logical router
+# port, e.g. "vif_to_lrp 12" yields 1.
+vif_to_lrp() {
+    echo ${1%?}
+}
+
+# Given the name of a logical port, prints the name of its logical
+# switch, e.g. "vif_to_ls 12" yields 1.
+vif_to_ls() {
+    echo ${1%?}
+}
+
+net_add n1
+for i in 1 2; do
+    sim_add hv$i
+    as hv$i
+    ovs-vsctl add-br br-phys
+    ovn_attach n1 br-phys 192.168.0.$i
+done
+for i in 1 2; do
+    for j in 1 2; do
+        hv=`vif_to_hv $i$j`
+            as hv$hv ovs-vsctl \
+                -- add-port br-int vif$i$j \
+                -- set Interface vif$i$j \
+                    external-ids:iface-id=lp$i$j \
+                    options:tx_pcap=hv$hv/vif$i$j-tx.pcap \
+                    options:rxq_pcap=hv$hv/vif$i$j-rx.pcap \
+                    ofport-request=$i$j
+    done
+done
+
+# Pre-populate the hypervisors' ARP tables so that we don't lose any
+# packets for ARP resolution (native tunneling doesn't queue packets
+# for ARP resolution).
+OVN_POPULATE_ARP
+
+# Allow some time for ovn-northd and ovn-controller to catch up.
+# XXX This should be more systematic.
+sleep 1
+
+# test_ip INPORT SRC_MAC DST_MAC SRC_IP DST_IP OUTPORT...
+#
+# This shell function causes a packet to be received on INPORT.  The packet's
+# content has Ethernet destination DST and source SRC (each exactly 12 hex
+# digits) and Ethernet type ETHTYPE (4 hex digits).  The OUTPORTs (zero or
+# more) list the VIFs on which the packet should be received.  INPORT and the
+# OUTPORTs are specified as logical switch port numbers, e.g. 12 for vif12.
+for i in 1 2; do
+    for j in 1 2; do
+        : > $i$j.expected
+    done
+done
+test_ip() {
+    # This packet has bad checksums but logical L3 routing doesn't check.
+    local inport=$1 src_mac=$2 dst_mac=$3 src_ip=$4 dst_ip=$5
+    local packet=${dst_mac}${src_mac}08004500001c0000000040110000${src_ip}${dst_ip}0035111100080000
+    shift; shift; shift; shift; shift
+    hv=hv`vif_to_hv $inport`
+    as $hv ovs-appctl netdev-dummy/receive vif$inport $packet
+    in_ls=`vif_to_ls $inport`
+    in_lrp=`vif_to_lrp $inport`
+    for outport; do
+        out_ls=`vif_to_ls $outport`
+        if test $in_ls = $out_ls; then
+            # Ports on the same logical switch receive exactly the same packet.
+            echo $packet
+        else
+            # Routing decrements TTL and updates source and dest MAC
+            # (and checksum).
+            out_lrp=`vif_to_lrp $outport`
+            echo f000000000${outport}00000000ff0${out_lrp}08004500001c00000000"3f1101"00${src_ip}${dst_ip}0035111100080000
+        fi >> $outport.expected
+    done
+}
+
+# test_arp INPORT SHA SPA TPA [REPLY_HA]
+#
+# Causes a packet to be received on INPORT.  The packet is an ARP
+# request with SHA, SPA, and TPA as specified.  If REPLY_HA is provided, then
+# it should be the hardware address of the target to expect to receive in an
+# ARP reply; otherwise no reply is expected.
+#
+# INPORT is an logical switch port number, e.g. 11 for vif11.
+# SHA and REPLY_HA are each 12 hex digits.
+# SPA and TPA are each 8 hex digits.
+test_arp() {
+    local inport=$1 sha=$2 spa=$3 tpa=$4 reply_ha=$5
+    local request=ffffffffffff${sha}08060001080006040001${sha}${spa}ffffffffffff${tpa}
+    hv=hv`vif_to_hv $inport`
+    as $hv ovs-appctl netdev-dummy/receive vif$inport $request
+
+    # Expect to receive the broadcast ARP on the other logical switch ports if
+    # IP address is not configured to the switch patch port.
+    local i=`vif_to_ls $inport`
+    local j
+    for j in 1 2; do
+        if test $i$j != $inport; then
+            echo $request >> $i$j$k.expected
+        fi
+    done
+
+    # Expect to receive the reply, if any.
+    if test X$reply_ha != X; then
+        lrp=`vif_to_lrp $inport`
+        local reply=${sha}00000000ff0${lrp}08060001080006040002${reply_ha}${tpa}${sha}${spa}
+        echo $reply >> $inport.expected
+    fi
+}
+
+ip_to_hex() {
+    printf "%02x%02x%02x%02x" "$@"
+}
+
+# lp11 send GARP request to announce ownership of 192.168.1.100.
+
+sha=f00000000011
+spa=`ip_to_hex 192 168 1 100`
+tpa=$spa
+test_arp 11 $sha $spa $tpa
+OVS_WAIT_UNTIL([test `ovn-sbctl find mac_binding ip="192.168.1.100" | wc -l` -gt 0])
+ovn-nbctl --wait=hv sync
+
+# Send an IP packet from lp21 to 192.168.1.100, which should go to lp11.
+
+smac=f00000000021
+dmac=00000000ff02
+sip=`ip_to_hex 192 168 2 11`
+dip=`ip_to_hex 192 168 1 100`
+test_ip 21 $smac $dmac $sip $dip 11
+
+# lp12 send GARP request to announce ownership of 192.168.1.100.
+
+sha=f00000000012
+test_arp 12 $sha $spa $tpa
+OVS_WAIT_UNTIL([ovn-sbctl find mac_binding ip="192.168.1.100" | grep f0:00:00:00:00:12])
+ovn-nbctl --wait=hv sync
+
+# Send an IP packet from lp21 to 192.168.1.100, which should go to lp12.
+
+test_ip 21 $smac $dmac $sip $dip 12
+
+# Now check the packets actually received against the ones expected.
+for i in 1 2; do
+    for j in 1 2; do
+        OVN_CHECK_PACKETS([hv`vif_to_hv $i$j`/vif$i$j-tx.pcap],
+                          [$i$j.expected])
+    done
+done
+
+# Gracefully terminate daemons
+OVN_CLEANUP([hv1], [hv2])
 
 AT_CLEANUP
 
@@ -4367,15 +4621,23 @@ trim_zeros() {
 # from the "ovs-ofctl monitor br-int resume"
 test_dhcpv6() {
     local inport=$1 src_mac=$2 src_lla=$3 msg_code=$4 offer_ip=$5
-    local request=ffffffffffff${src_mac}86dd00000000002a1101${src_lla}
+    if test $msg_code != 0b; then
+        req_len=2a
+    else
+        req_len=1a
+    fi
+    local request=ffffffffffff${src_mac}86dd0000000000${req_len}1101${src_lla}
     # dst ip ff02::1:2
     request=${request}ff020000000000000000000000010002
     # udp header and dhcpv6 header
-    request=${request}02220223002affff${msg_code}010203
+    request=${request}0222022300${req_len}ffff${msg_code}010203
     # Client identifier
     request=${request}0001000a00030001${src_mac}
-    # IA-NA (Identity Association for Non Temporary Address)
-    request=${request}0003000c0102030400000e1000001518
+    # Add IA-NA (Identity Association for Non Temporary Address) if msg_code
+    # is not 11 (information request packet)
+    if test $msg_code != 0b; then
+        request=${request}0003000c0102030400000e1000001518
+    fi
     shift; shift; shift; shift; shift;
     if test $offer_ip != 0; then
         local server_mac=000000100001
@@ -4506,7 +4768,7 @@ cat 4.expected > expout
 AT_CHECK([cat 4.packets], [0], [expout])
 
 # Send DHCPv6 packet on ls1-lp3. native DHCPv6 works as stateless mode for this port.
-# The DHCPv6 reply should doesn't contian offer_ip.
+# The DHCPv6 reply shouldn't contain offer_ip.
 src_mac=f00000000022
 src_lla=fe80000000000000f20000fffe000022
 reset_pcap_file hv1-vif5 hv1/vif5
@@ -4516,6 +4778,23 @@ test_dhcpv6 5 $src_mac $src_lla 01 1 5
 OVS_WAIT_UNTIL([test 3 = `cat ofctl_monitor*.log | grep -c NXT_RESUME`])
 
 $PYTHON "$top_srcdir/utilities/ovs-pcap.in" hv1/vif5-tx.pcap | trim_zeros > 5.packets
+# Skipping the UDP checksum
+cat 5.expected | cut -c 1-120,125- > expout
+AT_CHECK([cat 5.packets | cut -c 1-120,125- ], [0], [expout])
+
+# Send DHCPv6 information request (code 11) on ls1-lp3. The DHCPv6 reply
+# shouldn't contain offer_ip
+src_mac=f00000000022
+src_lla=fe80000000000000f20000fffe000022
+reset_pcap_file hv1-vif5 hv1/vif5
+rm -f 5.expected
+test_dhcpv6 5 $src_mac $src_lla 0b 1 5
+
+# NXT_RESUMEs should be 4.
+OVS_WAIT_UNTIL([test 4 = `cat ofctl_monitor*.log | grep -c NXT_RESUME`])
+
+$PYTHON "$top_srcdir/utilities/ovs-pcap.in" hv1/vif5-tx.pcap |
+trim_zeros > 5.packets
 # Skipping the UDP checksum
 cat 5.expected | cut -c 1-120,125- > expout
 AT_CHECK([cat 5.packets | cut -c 1-120,125- ], [0], [expout])
@@ -5140,7 +5419,7 @@ AT_CHECK([ovn-nbctl get Logical-Switch-Port p19 dynamic_addresses], [0],
 
 # Change a port's address to test for multiple ip's for a single address entry
 # and addresses set by the user.
-ovn-nbctl lsp-set-addresses p0 "0a:00:00:00:00:15 192.168.1.12 192.168.1.14"
+ovn-nbctl lsp-set-addresses p0 "0a:00:00:00:00:15 192.168.1.2 192.168.1.12 192.168.1.14"
 ovn-nbctl --wait=sb lsp-add sw0 p20 -- lsp-set-addresses p20 dynamic
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p20 dynamic_addresses], [0],
      ["0a:00:00:00:00:16 192.168.1.13"
@@ -5208,7 +5487,6 @@ AT_CHECK([ovn-nbctl get Logical-Switch-Port p31 dynamic_addresses], [0],
 # Update the static MAC address with dynamically allocated IP and check
 # if the MAC address is updated in 'Logical_Switch_Port.dynamic_adddresses'
 ovn-nbctl --wait=sb lsp-set-addresses p31 "fe:dc:ba:98:76:55 dynamic"
-ovn-nbctl get Logical-Switch-Port p31 dynamic_addresses
 
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p31 dynamic_addresses], [0],
      ["fe:dc:ba:98:76:55 192.168.1.18"
@@ -5216,7 +5494,7 @@ AT_CHECK([ovn-nbctl get Logical-Switch-Port p31 dynamic_addresses], [0],
 
 ovn-nbctl --wait=sb lsp-set-addresses p31 "dynamic"
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p31 dynamic_addresses], [0],
-     ["fe:dc:ba:98:76:55 192.168.1.18"
+     ["0a:00:00:00:00:21 192.168.1.18"
 ])
 
 ovn-nbctl --wait=sb lsp-set-addresses p31 "fe:dc:ba:98:76:56 dynamic"
@@ -5233,21 +5511,21 @@ ovn-nbctl --wait=sb lsp-add sw0 p32 -- lsp-set-addresses p32 \
 "dynamic"
 # 192.168.1.20 should be assigned as 192.168.1.19 is excluded.
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p32 dynamic_addresses], [0],
-     ["0a:00:00:00:00:21 192.168.1.20"
+     ["0a:00:00:00:00:22 192.168.1.20"
 ])
 
 ovn-nbctl --wait=sb lsp-add sw0 p33 -- lsp-set-addresses p33 \
 "dynamic"
 # 192.168.1.22 should be assigned as 192.168.1.21 is excluded.
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p33 dynamic_addresses], [0],
-     ["0a:00:00:00:00:22 192.168.1.22"
+     ["0a:00:00:00:00:23 192.168.1.22"
 ])
 
 ovn-nbctl --wait=sb lsp-add sw0 p34 -- lsp-set-addresses p34 \
 "dynamic"
 # 192.168.1.51 should be assigned as 192.168.1.23-192.168.1.50 is excluded.
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p34 dynamic_addresses], [0],
-     ["0a:00:00:00:00:23 192.168.1.51"
+     ["0a:00:00:00:00:24 192.168.1.51"
 ])
 
 # Now clear the exclude_ips list. 192.168.1.19 should be assigned.
@@ -5255,7 +5533,7 @@ ovn-nbctl --wait=sb set Logical-switch sw0 other_config:exclude_ips="invalid"
 ovn-nbctl --wait=sb lsp-add sw0 p35 -- lsp-set-addresses p35 \
 "dynamic"
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p35 dynamic_addresses], [0],
-     ["0a:00:00:00:00:24 192.168.1.19"
+     ["0a:00:00:00:00:25 192.168.1.19"
 ])
 
 # Set invalid data in exclude_ips list. It should be ignored.
@@ -5264,7 +5542,7 @@ ovn-nbctl --wait=sb lsp-add sw0 p36 -- lsp-set-addresses p36 \
 "dynamic"
 # 192.168.1.21 should be assigned as that's the next free one.
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p36 dynamic_addresses], [0],
-     ["0a:00:00:00:00:25 192.168.1.21"
+     ["0a:00:00:00:00:26 192.168.1.21"
 ])
 
 # Clear the dynamic addresses assignment request.
@@ -5281,16 +5559,17 @@ ovn-nbctl --wait=sb lsp-add sw0 p37 -- lsp-set-addresses p37 \
 # With prefix aef0 and mac 0a:00:00:00:00:26, the dynamic IPv6 should be
 # - aef0::800:ff:fe00:26 (EUI64)
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p37 dynamic_addresses], [0],
-     ["0a:00:00:00:00:26 192.168.1.21 aef0::800:ff:fe00:26"
+     ["0a:00:00:00:00:27 192.168.1.21 aef0::800:ff:fe00:27"
 ])
 
 ovn-nbctl --wait=sb ls-add sw4
-ovn-nbctl --wait=sb set Logical-switch sw4 other_config:ipv6_prefix="bef0::"
+ovn-nbctl --wait=sb set Logical-switch sw4 other_config:ipv6_prefix="bef0::" \
+-- set Logical-switch sw4 other_config:subnet=192.168.2.0/30
 ovn-nbctl --wait=sb lsp-add sw4 p38 -- lsp-set-addresses p38 \
 "dynamic"
 
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p38 dynamic_addresses], [0],
-     ["0a:00:00:00:00:27 bef0::800:ff:fe00:27"
+     ["0a:00:00:00:00:28 192.168.2.2 bef0::800:ff:fe00:28"
 ])
 
 ovn-nbctl --wait=sb lsp-add sw4 p39 -- lsp-set-addresses p39 \
@@ -5300,29 +5579,78 @@ AT_CHECK([ovn-nbctl get Logical-Switch-Port p39 dynamic_addresses], [0],
      ["f0:00:00:00:10:12 bef0::f200:ff:fe00:1012"
 ])
 
-# Clear the other_config for sw4. No dynamic ip should be assigned.
-ovn-nbctl --wait=sb clear Logical-switch sw4 other_config
+# Test the case where IPv4 addresses are exhausted and IPv6 prefix is set
+# p40 should not have an IPv4 address since the pool is exhausted
 ovn-nbctl --wait=sb lsp-add sw4 p40 -- lsp-set-addresses p40 \
 "dynamic"
-
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p40 dynamic_addresses], [0],
+         ["0a:00:00:00:00:29 bef0::800:ff:fe00:29"
+])
+
+# Test dynamic changes on switch ports.
+#
+ovn-nbctl --wait=sb ls-add sw5
+ovn-nbctl --wait=sb lsp-add sw5 p41 -- lsp-set-addresses p41 \
+"dynamic"
+# p41 will start with nothing
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
          [[[]]
 ])
 
-# Test the case where IPv4 addresses are exhausted and IPv6 prefix is set
-ovn-nbctl --wait=sb set Logical-switch sw4 other_config:subnet=192.168.2.0/30 \
--- set Logical-switch sw4 other_config:ipv6_prefix="bef0::"
-
-# Now p40 should be assigned with dynamic addresses.
-AT_CHECK([ovn-nbctl get Logical-Switch-Port p40 dynamic_addresses], [0],
-         ["0a:00:00:00:00:28 192.168.2.2 bef0::800:ff:fe00:28"
+# Set a subnet. Now p41 should have an ipv4 address, too
+ovn-nbctl --wait=sb add Logical-Switch sw5 other_config subnet=192.168.1.0/24
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["0a:00:00:00:00:2a 192.168.1.2"
 ])
 
-ovn-nbctl --wait=sb lsp-add sw4 p41 -- lsp-set-addresses p41 \
-"dynamic"
-# p41 should not have IPv4 address (as the pool is exhausted).
+# Clear the other_config. The IPv4 address should be gone
+ovn-nbctl --wait=sb clear Logical-Switch sw5 other_config
 AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
-         ["0a:00:00:00:00:29 bef0::800:ff:fe00:29"
+         [[[]]
+])
+
+# Set an IPv6 prefix. Now p41 should have an IPv6 address.
+ovn-nbctl --wait=sb set Logical-Switch sw5 other_config:ipv6_prefix="aef0::"
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["0a:00:00:00:00:2b aef0::800:ff:fe00:2b"
+])
+
+# Change the MAC address to a static one. The IPv6 address should update.
+ovn-nbctl --wait=sb lsp-set-addresses p41 "f0:00:00:00:10:2b dynamic"
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["f0:00:00:00:10:2b aef0::f200:ff:fe00:102b"
+])
+
+# Change the IPv6 prefix. The IPv6 address should update.
+ovn-nbctl --wait=sb set Logical-Switch sw5 other_config:ipv6_prefix="bef0::"
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["f0:00:00:00:10:2b bef0::f200:ff:fe00:102b"
+])
+
+# Clear the other_config. The IPv6 address should be gone
+ovn-nbctl --wait=sb clear Logical-Switch sw5 other_config
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         [[[]]
+])
+
+# Set the subnet again. Now p41 should get the IPv4 address again.
+ovn-nbctl --wait=sb add Logical-Switch sw5 other_config subnet=192.168.1.0/24
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["f0:00:00:00:10:2b 192.168.1.2"
+])
+
+# Add another port with a conflicting static IPv4 address. p41 should update.
+ovn-nbctl --wait=sb lsp-add sw5 p42 -- lsp-set-addresses p42 \
+"f0:00:00:00:10:2c 192.168.1.2"
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["f0:00:00:00:10:2b 192.168.1.3"
+])
+
+# Add an excluded IP address that conflicts with p41. p41 should update.
+ovn-nbctl --wait=sb add Logical-Switch sw5 other_config \
+exclude_ips="192.168.1.3"
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p41 dynamic_addresses], [0],
+         ["f0:00:00:00:10:2b 192.168.1.4"
 ])
 
 as ovn-sb
@@ -6153,6 +6481,88 @@ OVN_CLEANUP([hv])
 AT_CLEANUP
 
 
+AT_SETUP([ovn -- ACL rate-limited logging])
+AT_KEYWORDS([ovn])
+ovn_start
+
+net_add n1
+
+sim_add hv
+as hv
+ovs-vsctl add-br br-phys
+ovn_attach n1 br-phys 192.168.0.1
+for i in lp1 lp2; do
+    ovs-vsctl -- add-port br-int $i -- \
+        set interface $i external-ids:iface-id=$i \
+        options:tx_pcap=hv/$i-tx.pcap \
+        options:rxq_pcap=hv/$i-rx.pcap
+done
+
+lp1_mac="f0:00:00:00:00:01"
+lp1_ip="192.168.1.2"
+
+lp2_mac="f0:00:00:00:00:02"
+lp2_ip="192.168.1.3"
+
+ovn-nbctl ls-add lsw0
+ovn-nbctl --wait=sb lsp-add lsw0 lp1
+ovn-nbctl --wait=sb lsp-add lsw0 lp2
+ovn-nbctl lsp-set-addresses lp1 $lp1_mac
+ovn-nbctl lsp-set-addresses lp2 $lp2_mac
+ovn-nbctl --wait=sb sync
+
+
+# Add an ACL that rate-limits logs at 10 per second.
+ovn-nbctl meter-add http-rl1 drop 10 pktps
+ovn-nbctl --log --severity=alert --meter=http-rl1 --name=http-acl1 acl-add lsw0 to-lport 1000 'tcp.dst==80' drop
+
+# Add an ACL that rate-limits logs at 5 per second.
+ovn-nbctl meter-add http-rl2 drop 5 pktps
+ovn-nbctl --log --severity=alert --meter=http-rl2 --name=http-acl2 acl-add lsw0 to-lport 1000 'tcp.dst==81' allow
+
+# Add an ACL that doesn't rate-limit logs.
+ovn-nbctl --log --severity=alert --name=http-acl3 acl-add lsw0 to-lport 1000 'tcp.dst==82' drop
+
+
+# For each ACL, send 100 packets.
+for i in `seq 1 100`; do
+    ovs-appctl netdev-dummy/receive lp1 'in_port(1),eth(src=f0:00:00:00:00:01,dst=f0:00:00:00:00:02),eth_type(0x0800),ipv4(src=192.168.1.2,dst=192.168.1.3,proto=6,tos=0,ttl=64,frag=no),tcp(src=7777,dst=80)'
+
+    ovs-appctl netdev-dummy/receive lp1 'in_port(1),eth(src=f0:00:00:00:00:01,dst=f0:00:00:00:00:02),eth_type(0x0800),ipv4(src=192.168.1.2,dst=192.168.1.3,proto=6,tos=0,ttl=64,frag=no),tcp(src=7777,dst=81)'
+
+    ovs-appctl netdev-dummy/receive lp1 'in_port(1),eth(src=f0:00:00:00:00:01,dst=f0:00:00:00:00:02),eth_type(0x0800),ipv4(src=192.168.1.2,dst=192.168.1.3,proto=6,tos=0,ttl=64,frag=no),tcp(src=7777,dst=82)'
+done
+
+# The rate at which packets are sent is highly system-dependent, so we
+# can't count on precise drop counts.  To work around that, we just
+# check that exactly 100 "http-acl3" actions were logged and that there
+# were more "http-acl1" actions than "http-acl2" ones.
+OVS_WAIT_UNTIL([ test 100 = $(grep -c 'http-acl3' hv/ovn-controller.log) ])
+
+# On particularly slow or overloaded systems, the transmission rate may
+# be lower than the configured meter rate.  To prevent false test
+# failures, we check the duration count of the meter, and if it's
+# greater than nine seconds, just skip the test.
+d_secs=$(as hv ovs-ofctl -O OpenFlow13 meter-stats br-int | grep "meter:1" | sed 's/.* duration:\([[0-9]]\{1,\}\)\.[[0-9]]\+s .*/\1/')
+
+echo "Meter duration: $d_secs"
+AT_SKIP_IF([test $d_secs -gt 9])
+
+# Print some information that may help debugging.
+as hv ovs-appctl -t ovn-controller meter-table-list
+as hv ovs-ofctl -O OpenFlow13 meter-stats br-int
+
+n_acl1=$(grep -c 'http-acl1' hv/ovn-controller.log)
+n_acl2=$(grep -c 'http-acl2' hv/ovn-controller.log)
+n_acl3=$(grep -c 'http-acl3' hv/ovn-controller.log)
+
+AT_CHECK([ test $n_acl3 -gt $n_acl1 ], [0], [])
+AT_CHECK([ test $n_acl1 -gt $n_acl2 ], [0], [])
+
+OVN_CLEANUP([hv])
+AT_CLEANUP
+
+
 AT_SETUP([ovn -- DSCP marking and meter check])
 AT_KEYWORDS([ovn])
 ovn_start
@@ -6665,6 +7075,17 @@ src_mac="000000010204"
 dst_mac="f00000010207"
 packet=${dst_mac}${src_mac}8100000208004500001c000000003f110100${src_ip}${dst_ip}0035111100080000
 echo  $packet >> expected1
+OVN_CHECK_PACKETS([hv1/vm1-tx.pcap], [expected1])
+
+# Send broadcast packet from foo1. foo1 should not receive the same packet.
+src_mac="f00000010205"
+dst_mac="ffffffffffff"
+src_ip=`ip_to_hex 192 168 1 2`
+dst_ip=`ip_to_hex 255 255 255 255`
+packet=${dst_mac}${src_mac}8100000108004500001c0000000040110000${src_ip}${dst_ip}0035111100080000
+as hv1 ovs-appctl netdev-dummy/receive vm1 $packet
+
+# expected packet at VM1
 OVN_CHECK_PACKETS([hv1/vm1-tx.pcap], [expected1])
 
 OVN_CLEANUP([hv1],[hv2])
@@ -7867,9 +8288,9 @@ AT_CHECK([as hv1 ovs-ofctl dump-flows br-int table=32 | grep =0x3,metadata=0x1 |
 AT_CHECK([as hv2 ovs-ofctl dump-flows br-int table=32 | grep =0x3,metadata=0x1 | wc -l], [0], [0
 ])
 # Check that arp reply on distributed gateway port is only programmed on hv2
-AT_CHECK([as hv1 ovs-ofctl dump-flows br-int | grep arp | grep =0x2,metadata=0x1 | wc -l], [0], [0
+AT_CHECK([as hv1 ovs-ofctl dump-flows br-int | grep arp | grep load:0x2- | grep =0x2,metadata=0x1 | wc -l], [0], [0
 ])
-AT_CHECK([as hv2 ovs-ofctl dump-flows br-int | grep arp | grep =0x2,metadata=0x1 | wc -l], [0], [1
+AT_CHECK([as hv2 ovs-ofctl dump-flows br-int | grep arp | grep load:0x2- | grep =0x2,metadata=0x1 | wc -l], [0], [1
 ])
 
 
@@ -7947,34 +8368,11 @@ src_ip=`ip_to_hex 192 168 1 2`
 dst_ip=`ip_to_hex 172 16 1 3`
 packet=${dst_mac}${src_mac}08004500001c0000000040110000${src_ip}${dst_ip}0035111100080000
 
-# ARP request packet to expect at outside1
-src_mac="000002010203"
-src_ip=`ip_to_hex 172 16 1 1`
-arp_request=ffffffffffff${src_mac}08060001080006040001${src_mac}${src_ip}000000000000${dst_ip}
-
-as hv1 ovs-appctl netdev-dummy/receive hv1-vif1 $packet
-
-echo $arp_request >> hv3-vif1.expected
-OVN_CHECK_PACKETS([hv3/vif1-tx.pcap], [hv3-vif1.expected])
-
-# Send ARP reply from outside1 back to the router
-reply_mac="f00000010204"
-arp_reply=${src_mac}${reply_mac}08060001080006040002${reply_mac}${dst_ip}${src_mac}${src_ip}
-
-as hv3 ovs-appctl netdev-dummy/receive hv3-vif1 $arp_reply
-
-# Allow some time for ovn-northd and ovn-controller to catch up.
-# XXX This should be more systematic.
-sleep 1
-
 # Packet to Expect at outside1
 src_mac="000002010203"
 dst_mac="f00000010204"
-src_ip=`ip_to_hex 192 168 1 2`
-dst_ip=`ip_to_hex 172 16 1 3`
 expected=${dst_mac}${src_mac}08004500001c000000003f110100${src_ip}${dst_ip}0035111100080000
 
-# Resend packet from foo1 to outside1
 as hv1 ovs-appctl netdev-dummy/receive hv1-vif1 $packet
 
 echo "------ hv1 dump ----------"
@@ -8362,7 +8760,7 @@ ovn-nbctl --wait=hv set Logical_Router_Port lrp0 ipv6_ra_configs:address_mode=dh
 OVS_WAIT_UNTIL([test 1 = `as hv1 ovs-ofctl dump-flows br-int | grep -c "ipv6_dst=ff02::2,nw_ttl=255,icmp_type=133,icmp_code=0"`])
 
 addr_mode=80
-default_prefix_option_config=""
+default_prefix_option_config=03044080ffffffffffffffff00000000
 src_mac=fa163e000004
 src_lla=fe80000000000000f8163efffe000004
 mtu=000005dc
@@ -9185,7 +9583,7 @@ ovn-nbctl lr-add lr0_ip6
 ovn-nbctl lrp-add lr0_ip6 lrp0_ip6 00:00:00:00:af:01 aef0:0:0:0:0:0:0:0/64
 ovn-nbctl lsp-add sw0_ip6 lrp0_ip6-attachment
 ovn-nbctl lsp-set-type lrp0_ip6-attachment router
-ovn-nbctl lsp-set-addresses lrp0_ip6-attachment 00:00:00:00:af:01
+ovn-nbctl lsp-set-addresses lrp0_ip6-attachment router
 ovn-nbctl lsp-set-options lrp0_ip6-attachment router-port=lrp0_ip6
 ovn-nbctl set logical_router_port lrp0_ip6 ipv6_ra_configs:address_mode=slaac
 
@@ -9199,6 +9597,10 @@ ovn-nbctl lrp-add lr0_ip6 ip6_public 00:00:02:01:02:04 \
 2001:db8:1:0:200:02ff:fe01:0204/64 \
 -- set Logical_Router_port ip6_public options:redirect-chassis="hv1"
 
+#install static route
+ovn-nbctl -- --id=@lrt create Logical_Router_Static_Route \
+ip_prefix="\:\:/0" nexthop="2001\:db8\:1\:0\:200\:02ff\:fe01\:1305" \
+-- add Logical_Router lr0_ip6 static_routes @lrt
 
 ovn-nbctl lsp-add public rp-ip6_public -- set Logical_Switch_Port \
 rp-ip6_public  type=router options:router-port=ip6_public \
@@ -9218,6 +9620,19 @@ ovs-vsctl -- add-port br-int hv1-vif1 -- \
 ovs-vsctl set open . external-ids:ovn-bridge-mappings=phys:br-phys
 
 OVS_WAIT_UNTIL([test x`ovn-nbctl lsp-get-up sw0_ip6-port1` = xup])
+
+# There should be 2 Neighbor Advertisement flows for the router port
+# aef0:: ip address in logical switch pipeline with action nd_na_router.
+AT_CHECK([ovn-sbctl dump-flows sw0_ip6 | grep ls_in_arp_rsp | \
+grep "nd_na_router" | wc -l], [0], [2
+])
+
+# There should be 4 Neighbor Advertisement flows with action nd_na_router
+# in the router pipeline for the router lr0_ip6.
+AT_CHECK([ovn-sbctl dump-flows lr0_ip6 | grep nd_na_router | \
+wc -l], [0], [4
+])
+
 cr_uuid=`ovn-sbctl find port_binding logical_port=cr-ip6_public | grep _uuid | cut -f2 -d ":"`
 
 # There is only one chassis.
@@ -9228,36 +9643,82 @@ trim_zeros() {
     sed 's/\(00\)\{1,\}$//'
 }
 
+reset_pcap_file() {
+    local iface=$1
+    local pcap_file=$2
+    ovs-vsctl -- set Interface $iface options:tx_pcap=dummy-tx.pcap \
+options:rxq_pcap=dummy-rx.pcap
+    rm -f ${pcap_file}*.pcap
+    ovs-vsctl -- set Interface $iface options:tx_pcap=${pcap_file}-tx.pcap \
+options:rxq_pcap=${pcap_file}-rx.pcap
+}
+
 # Test the IPv6 Neighbor Solicitation (NS) - nd_ns action for unknown MAC
 # addresses. ovn-controller should generate an IPv6 NS request for IPv6
 # packets whose MAC is unknown (in the ARP_REQUEST router pipeline stage.
 # test_ipv6 INPORT SRC_MAC DST_MAC SRC_IP DST_IP OUTPORT...
 # This function sends ipv6 packet
 test_ipv6() {
-    local inport=$1 src_mac=$2 dst_mac=$3 src_ip=$4
-    dst_ip=20010db800010000020002fffe010205
+    local inport=$1 src_mac=$2 dst_mac=$3 src_ip=$4 dst_ip=$5
+    local dst_mcast_mac=$6 mcast_node_ip=$7 nd_target=$8
 
     local packet=${dst_mac}${src_mac}86dd6000000000083aff${src_ip}${dst_ip}
     packet=${packet}8000000000000000
-    shift; shift; shift; shift
 
-    dst_mac=3333ff010205
     src_mac=000002010204
-    mcast_node_ip=ff0200000000000000000001ff010205
-    expected_packet=${dst_mac}${src_mac}86dd6000000000203aff${src_ip}
-    expected_packet=${expected_packet}${mcast_node_ip}8700XXXX00000000${dst_ip}
-    expected_packet=${expected_packet}0101${src_mac}
+    expected_packet=${dst_mcast_mac}${src_mac}86dd6000000000203aff${src_ip}
+    expected_packet=${expected_packet}${mcast_node_ip}8700XXXX00000000
+    expected_packet=${expected_packet}${nd_target}0101${src_mac}
 
     as hv1 ovs-appctl netdev-dummy/receive hv1-vif${inport} $packet
+    rm -f ipv6_ns.expected
     echo $expected_packet >> ipv6_ns.expected
 }
 
 src_mac=506400000002
 dst_mac=00000000af01
 src_ip=aef0000000000000526400fffe000002
+dst_ip=20010db800010000020002fffe010205
+dst_mcast_mac=3333ff010205
+mcast_node_ip=ff0200000000000000000001ff010205
+nd_target=20010db800010000020002fffe010205
 # Send an IPv6 packet. Generated IPv6 Neighbor solicitation packet
 # should be received by the ports attached to br-phys.
-test_ipv6 1 $src_mac $dst_mac $src_ip 2
+test_ipv6 1 $src_mac $dst_mac $src_ip $dst_ip $dst_mcast_mac \
+$mcast_node_ip $nd_target
+
+OVS_WAIT_WHILE([test 24 = $(wc -c hv1/br-phys_n1-tx.pcap | cut -d " " -f1)])
+OVS_WAIT_WHILE([test 24 = $(wc -c hv1/br-phys-tx.pcap | cut -d " " -f1)])
+
+$PYTHON "$top_srcdir/utilities/ovs-pcap.in" hv1/br-phys_n1-tx.pcap | \
+trim_zeros > 1.packets
+$PYTHON "$top_srcdir/utilities/ovs-pcap.in" hv1/br-phys-tx.pcap | \
+trim_zeros > 2.packets
+
+cat ipv6_ns.expected | cut -c -112 > expout
+AT_CHECK([cat 1.packets | cut -c -112], [0], [expout])
+AT_CHECK([cat 2.packets | cut -c -112], [0], [expout])
+
+# Skipping the ICMPv6 checksum
+cat ipv6_ns.expected | cut -c 117- > expout
+AT_CHECK([cat 1.packets | cut -c 117-], [0], [expout])
+AT_CHECK([cat 2.packets | cut -c 117-], [0], [expout])
+
+# Now send a packet with destination ip other than
+# 2001:db8:1:0:200:02ff:fe01:0204/64 prefix.
+reset_pcap_file br-phys_n1 hv1/br-phys_n1
+reset_pcap_file br-phys hv1/br-phys
+
+src_mac=506400000002
+dst_mac=00000000af01
+src_ip=aef0000000000000526400fffe000002
+dst_ip=20020ab8000100000200020000020306
+# multicast mac of the nexthop IP - 2001:db8:1:0:200:02ff:fe01:1305
+dst_mcast_mac=3333ff011305
+mcast_node_ip=ff0200000000000000000001ff011305
+nd_target=20010db800010000020002fffe011305
+test_ipv6 1 $src_mac $dst_mac $src_ip $dst_ip $dst_mcast_mac \
+$mcast_node_ip $nd_target
 
 OVS_WAIT_WHILE([test 24 = $(wc -c hv1/br-phys_n1-tx.pcap | cut -d " " -f1)])
 OVS_WAIT_WHILE([test 24 = $(wc -c hv1/br-phys-tx.pcap | cut -d " " -f1)])
@@ -9542,7 +10003,7 @@ ra_test 000005dc 80 80 40 aef00000000000000000000000000000 30 fd0f00000000000000
 
 # And the other address mode
 ovn-nbctl --wait=hv set Logical_Router_Port ro-sw ipv6_ra_configs:address_mode=dhcpv6_stateless
-ra_test 000005dc 40 80 40 aef00000000000000000000000000000 30 fd0f0000000000000000000000000000
+ra_test 000005dc 40 c0 40 aef00000000000000000000000000000 30 fd0f0000000000000000000000000000
 
 OVN_CLEANUP([hv1],[hv2])
 AT_CLEANUP
@@ -10043,13 +10504,20 @@ OVN_POPULATE_ARP
 # XXX This should be more systematic.
 sleep 1
 
-# test_ip INPORT SRC_MAC DST_MAC SRC_IP DST_IP OUTPORT...
+lsp_to_mac() {
+    echo f0:00:00:00:0${1:0:1}:${1:1:2}
+}
+
+lrp_to_mac() {
+    echo 00:00:00:00:ff:$1
+}
+
+# test_icmp INPORT SRC_MAC DST_MAC SRC_IP DST_IP ICMP_TYPE OUTPORT...
 #
-# This shell function causes a packet to be received on INPORT.  The packet's
-# content has Ethernet destination DST and source SRC (each exactly 12 hex
-# digits) and Ethernet type ETHTYPE (4 hex digits).  The OUTPORTs (zero or
-# more) list the VIFs on which the packet should be received.  INPORT and the
-# OUTPORTs are specified as logical switch port numbers, e.g. 123 for vif123.
+# This shell function causes a ICMP packet to be received on INPORT.
+# The OUTPORTs (zero or more) list the VIFs on which the packet should
+# be received.  INPORT and the OUTPORTs are specified as logical switch
+# port numbers, e.g. 123 for vif123.
 for i in 1 2 3; do
     for j in 1 2 3; do
         for k in 1 2 3; do
@@ -10057,26 +10525,34 @@ for i in 1 2 3; do
         done
     done
 done
-test_ip() {
-    # This packet has bad checksums but logical L3 routing doesn't check.
-    local inport=$1 src_mac=$2 dst_mac=$3 src_ip=$4 dst_ip=$5
-    local packet=${dst_mac}${src_mac}08004500001c0000000040110000${src_ip}${dst_ip}0035111100080000
-    shift; shift; shift; shift; shift
+
+test_icmp() {
+    local inport=$1 src_mac=$2 dst_mac=$3 src_ip=$4 dst_ip=$5 icmp_type=$6
+    local packet="inport==\"lp$inport\" && eth.src==$src_mac &&
+                  eth.dst==$dst_mac && ip.ttl==64 && ip4.src==$src_ip
+                  && ip4.dst==$dst_ip && icmp4.type==$icmp_type &&
+                  icmp4.code==0"
+    shift; shift; shift; shift; shift; shift
     hv=hv`vif_to_hv $inport`
-    as $hv ovs-appctl netdev-dummy/receive vif$inport $packet
-    #as $hv ovs-appctl ofproto/trace br-int in_port=$inport $packet
+    as $hv ovs-appctl -t ovn-controller inject-pkt "$packet"
     in_ls=`vif_to_ls $inport`
     in_lrp=`vif_to_lrp $inport`
     for outport; do
         out_ls=`vif_to_ls $outport`
         if test $in_ls = $out_ls; then
             # Ports on the same logical switch receive exactly the same packet.
-            echo $packet
+            echo $packet | ovstest test-ovn expr-to-packets
         else
             # Routing decrements TTL and updates source and dest MAC
             # (and checksum).
             out_lrp=`vif_to_lrp $outport`
-            echo f00000000${outport}00000000ff${out_lrp}08004500001c00000000"3f1101"00${src_ip}${dst_ip}0035111100080000
+            exp_smac=`lrp_to_mac $out_lrp`
+            exp_dmac=`lsp_to_mac $outport`
+            exp_packet="eth.src==$exp_smac && eth.dst==$exp_dmac &&
+                ip.ttl==63 && ip4.src==$src_ip && ip4.dst==$dst_ip &&
+                icmp4.type==$icmp_type && icmp4.code==0"
+            echo $exp_packet | ovstest test-ovn expr-to-packets
+
         fi >> $outport.expected
     done
 }
@@ -10099,14 +10575,17 @@ for is in 1 2 3; do
     for ks in 1 2 3; do
       bcast=
       s=$is$js$ks
-      smac=f00000000$s
-      sip=`ip_to_hex 192 168 $is$js $ks`
+      slsp_mac=`lsp_to_mac $s`
+      slrp_mac=`lrp_to_mac $is$js`
+      sip=192.168.$is$js.$ks
       for id in 1 2 3; do
           for jd in 1 2 3; do
               for kd in 1 2 3; do
                 d=$id$jd$kd
-                dip=`ip_to_hex 192 168 $id$jd $kd`
-                if test $is = $id; then dmac=f00000000$d; else dmac=00000000ff$is$js; fi
+                dlsp_mac=`lsp_to_mac $d`
+                dlrp_mac=`lrp_to_mac $id$jd`
+                dip=192.168.$id$jd.$kd
+                if test $is = $id; then dmac=$dlsp_mac; else dmac=$slrp_mac; fi
                 if test $d != $s; then unicast=$d; else unicast=; fi
 
                 # packets matches ACL1 but not ACL2 should be dropped
@@ -10115,7 +10594,16 @@ for is in 1 2 3; do
                         unicast=
                     fi
                 fi
-                test_ip $s $smac $dmac $sip $dip $unicast #1
+                # icmp request (type = 8)
+                test_icmp $s $slsp_mac $dmac $sip $dip 8 $unicast
+
+                # if packets are not dropped, test the return traffic (icmp echo)
+                # to make sure stateful works, too.
+                if test x$unicast != x; then
+                    if test $is = $id; then dmac=$slsp_mac; else dmac=$dlrp_mac; fi
+                    # icmp echo (type = 0)
+                    test_icmp $unicast $dlsp_mac $dmac $dip $sip 0 $s
+                fi
               done
           done
         done
@@ -10139,6 +10627,115 @@ done
 
 # Gracefully terminate daemons
 OVN_CLEANUP([hv1], [hv2], [hv3])
+AT_CLEANUP
+
+AT_SETUP([ovn -- Address Set generation from Port Groups (static addressing)])
+ovn_start
+
+ovn-nbctl ls-add ls1
+
+ovn-nbctl lsp-add ls1 lp1
+ovn-nbctl lsp-add ls1 lp2
+ovn-nbctl lsp-add ls1 lp3
+
+ovn-nbctl lsp-set-addresses lp1 "02:00:00:00:00:01 10.0.0.1 2001:db8::1"
+ovn-nbctl lsp-set-addresses lp2 "02:00:00:00:00:02 10.0.0.2 2001:db8::2"
+ovn-nbctl lsp-set-addresses lp3 "02:00:00:00:00:03 10.0.0.3 2001:db8::3"
+
+ovn-nbctl create Port_Group name=pg1
+ovn-nbctl create Port_Group name=pg2
+
+ovn-nbctl --id=@p get Logical_Switch_Port lp1 -- add Port_Group pg1 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp2 -- add Port_Group pg1 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp2 -- add Port_Group pg2 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp3 -- add Port_Group pg2 ports @p
+
+ovn-nbctl --wait=sb sync
+
+dnl Check if port group address sets were populated with ports' addresses
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip4 addresses],
+         [0], [[["10.0.0.1", "10.0.0.2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg2_ip4 addresses],
+         [0], [[["10.0.0.2", "10.0.0.3"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip6 addresses],
+         [0], [[["2001:db8::1", "2001:db8::2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg2_ip6 addresses],
+         [0], [[["2001:db8::2", "2001:db8::3"]]
+])
+
+ovn-nbctl --wait=sb lsp-set-addresses lp1 \
+    "02:00:00:00:00:01 10.0.0.11 2001:db8::11"
+
+dnl Check if updated address got propagated to the port group address sets
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip4 addresses],
+         [0], [[["10.0.0.11", "10.0.0.2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip6 addresses],
+         [0], [[["2001:db8::11", "2001:db8::2"]]
+])
+
+AT_CLEANUP
+
+AT_SETUP([ovn -- Address Set generation from Port Groups (dynamic addressing)])
+ovn_start
+
+ovn-nbctl ls-add ls1
+ovn-nbctl ls-add ls2
+ovn-nbctl ls-add ls3
+
+ovn-nbctl set Logical_Switch ls1 \
+    other_config:subnet=10.1.0.0/24 other_config:ipv6_prefix="2001:db8:1::"
+ovn-nbctl set Logical_Switch ls2 \
+    other_config:subnet=10.2.0.0/24 other_config:ipv6_prefix="2001:db8:2::"
+ovn-nbctl set Logical_Switch ls3 \
+    other_config:subnet=10.3.0.0/24 other_config:ipv6_prefix="2001:db8:3::"
+
+ovn-nbctl lsp-add ls1 lp1
+ovn-nbctl lsp-add ls2 lp2
+ovn-nbctl lsp-add ls3 lp3
+
+ovn-nbctl lsp-set-addresses lp1 "02:00:00:00:00:01 dynamic"
+ovn-nbctl lsp-set-addresses lp2 "02:00:00:00:00:02 dynamic"
+ovn-nbctl lsp-set-addresses lp3 "02:00:00:00:00:03 dynamic"
+
+ovn-nbctl create Port_Group name=pg1
+ovn-nbctl create Port_Group name=pg2
+
+ovn-nbctl --id=@p get Logical_Switch_Port lp1 -- add Port_Group pg1 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp2 -- add Port_Group pg1 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp2 -- add Port_Group pg2 ports @p
+ovn-nbctl --id=@p get Logical_Switch_Port lp3 -- add Port_Group pg2 ports @p
+
+ovn-nbctl --wait=sb sync
+
+dnl Check if port group address sets were populated with ports' addresses
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip4 addresses],
+         [0], [[["10.1.0.2", "10.2.0.2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg2_ip4 addresses],
+         [0], [[["10.2.0.2", "10.3.0.2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip6 addresses],
+         [0], [[["2001:db8:1::ff:fe00:1", "2001:db8:2::ff:fe00:2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg2_ip6 addresses],
+         [0], [[["2001:db8:2::ff:fe00:2", "2001:db8:3::ff:fe00:3"]]
+])
+
+ovn-nbctl set Logical_Switch ls1 \
+    other_config:subnet=10.11.0.0/24 other_config:ipv6_prefix="2001:db8:11::"
+
+dnl Check if updated address got propagated to the port group address sets
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip4 addresses],
+         [0], [[["10.11.0.2", "10.2.0.2"]]
+])
+AT_CHECK([ovn-sbctl get Address_Set pg1_ip6 addresses],
+         [0], [[["2001:db8:11::ff:fe00:1", "2001:db8:2::ff:fe00:2"]]
+])
+
 AT_CLEANUP
 
 AT_SETUP([ovn -- ACL conjunction])
@@ -10303,6 +10900,25 @@ test_ip_packet() {
     as hv$hv ovs-appctl netdev-dummy/receive vif$inport $packet
 }
 
+# test_ip6_packet INPORT HV ETH_SRC ETH_DST IPV6_SRC IPV6_DST IPV6_ROUTER EXP_ICMP_CHKSUM
+#
+# Causes a packet to be received on INPORT of the hypervisor HV. The packet is an IPv6
+# packet with ETH_SRC, ETH_DST, IPV6_SRC and IPV6_DST as specified.
+# IPV6_ROUTER and EXP_ICMP_CHKSUM are the source IP and checksum of the icmpv6 ttl exceeded
+# packet sent by OVN logical router
+test_ip6_packet() {
+    local inport=$1 hv=$2 eth_src=$3 eth_dst=$4 ipv6_src=$5 ipv6_dst=$6 ipv6_router=$7 exp_icmp_chksum=$8
+    shift 8
+
+    local ip6_hdr=6000000000151101${ipv6_src}${ipv6_dst}
+    local packet=${eth_dst}${eth_src}86dd${ip6_hdr}dbb8303900155bac6b646f65206676676e6d66720a
+
+    local reply=${eth_src}${eth_dst}86dd6000000000303afe${ipv6_router}${ipv6_src}0300${exp_icmp_chksum}00000000${ip6_hdr}
+    echo $reply >> vif$inport.expected
+
+    as hv$hv ovs-appctl netdev-dummy/receive vif$inport $packet
+}
+
 ip_to_hex() {
     printf "%02x%02x%02x%02x" "$@"
 }
@@ -10317,7 +10933,7 @@ for i in 1 2; do
     ovn_attach n$i br-phys 192.168.$i.1
 
     ovn-nbctl lsp-add sw$i sw$i-p${i}0 -- \
-        lsp-set-addresses sw$i-p${i}0 "00:00:00:00:00:0$i 192.168.$i.1"
+        lsp-set-addresses sw$i-p${i}0 "00:00:00:00:00:0$i 192.168.$i.1 2001:db8:$i::11"
 
     ovs-vsctl -- add-port br-int vif$i -- \
         set interface vif$i \
@@ -10329,10 +10945,10 @@ done
 
 ovn-nbctl lr-add lr0
 for i in 1 2; do
-    ovn-nbctl lrp-add lr0 lrp$i 00:00:00:00:ff:0$i 192.168.$i.254/24
+    ovn-nbctl lrp-add lr0 lrp$i 00:00:00:00:ff:0$i 192.168.$i.254/24 2001:db8:$i::1/64
     ovn-nbctl -- lsp-add sw$i lrp$i-attachment \
               -- set Logical_Switch_Port lrp$i-attachment type=router \
-                options:router-port=lrp$i addresses='"00:00:00:00:ff:'0$i'"'
+                options:router-port=lrp$i addresses='"00:00:00:00:ff:0'$i' 192.168.'$i'.254 2001:db8:'$i'::1"'
 done
 
 OVN_POPULATE_ARP
@@ -10340,6 +10956,7 @@ OVN_POPULATE_ARP
 ovn-nbctl --wait=hv sync
 
 test_ip_packet 1 1 000000000001 00000000ff01 $(ip_to_hex 192 168 1 1) $(ip_to_hex 192 168 2 1) $(ip_to_hex 192 168 1 254) 0000 7dae f4ff
+test_ip6_packet 1 1 000000000001 00000000ff01 20010db8000100000000000000000011 20010db8000200000000000000000011 20010db8000100000000000000000001 d461
 OVN_CHECK_PACKETS([hv1/vif1-tx.pcap], [vif1.expected])
 
 OVN_CLEANUP([hv1], [hv2])
@@ -10407,6 +11024,45 @@ test_tcp_syn_packet() {
     as hv$hv ovs-appctl netdev-dummy/receive vif$inport $packet
 }
 
+# test_tcp6_packet INPORT HV ETH_SRC ETH_DST IPV6_SRC IPV6_ROUTER TCP_SPORT TCP_DPORT TCP_CHKSUM EXP_TCP_RST_CHKSUM
+#
+# Causes a packet to be received on INPORT of the hypervisor HV. The packet is a TCP syn segment with
+# ETH_SRC, ETH_DST, IPV6_SRC, IPV6_ROUTER, TCP_SPORT, TCP_DPORT and TCP_CHKSUM as specified.
+# EXP_TCP_RST_CHKSUM is the tcp checksums of the tcp reset segment generated by OVN logical router
+test_tcp6_packet() {
+    local inport=$1 hv=$2 eth_src=$3 eth_dst=$4 ipv6_src=$5 ipv6_router=$6
+    local tcp_sport=$7 tcp_dport=$8 tcp_chksum=$9
+    local exp_tcp_rst_chksum=${10}
+    shift 10
+
+    local ip6_hdr=60000000001406ff${ipv6_src}${ipv6_router}
+    local packet=${eth_dst}${eth_src}86dd${ip6_hdr}${tcp_sport}${tcp_dport}000000010000000050027210${tcp_chksum}0000
+
+    local reply=${eth_src}${eth_dst}86dd60000000001406fe${ipv6_router}${ipv6_src}${tcp_dport}${tcp_sport}000000000000000150040000${exp_tcp_rst_chksum}0000
+    echo $reply >> vif$inport.expected
+
+    as hv$hv ovs-appctl netdev-dummy/receive vif$inport $packet
+}
+
+# test_ip6_packet INPORT HV ETH_SRC ETH_DST IPV6_SRC IPV6_DST IPV6_PROTO IPV6_LEN DATA EXP_ICMP_CODE EXP_ICMP_CHKSUM
+#
+# Causes a packet to be received on INPORT of the hypervisor HV. The packet is an IPv6
+# packet with ETH_SRC, ETH_DST, IPV6_SRC, IPV6_DST, IPV6_PROTO, IPV6_LEN and DATA as specified.
+# EXP_ICMP_CODE and EXP_ICMP_CHKSUM are the code and checksum of the icmp6 packet sent by OVN logical router
+test_ip6_packet() {
+    local inport=$1 hv=$2 eth_src=$3 eth_dst=$4 ipv6_src=$5 ipv6_dst=$6 ipv6_proto=$7 ipv6_len=$8 data=$9
+    local exp_icmp_code=${10} exp_icmp_chksum=${11}
+    shift 11
+
+    local ip6_hdr=60000000${ipv6_len}${ipv6_proto}ff${ipv6_src}${ipv6_dst}
+    local packet=${eth_dst}${eth_src}86dd${ip6_hdr}${data}
+
+    local reply=${eth_src}${eth_dst}86dd6000000000303afe${ipv6_dst}${ipv6_src}${exp_icmp_code}${exp_icmp_chksum}00000000${ip6_hdr}
+    echo $reply >> vif$inport.expected
+
+    as hv$hv ovs-appctl netdev-dummy/receive vif$inport $packet
+}
+
 ip_to_hex() {
     printf "%02x%02x%02x%02x" "$@"
 }
@@ -10421,7 +11077,7 @@ for i in 1 2; do
     ovn_attach n$i br-phys 192.168.$i.1
 
     ovn-nbctl lsp-add sw$i sw$i-p${i}0 -- \
-        lsp-set-addresses sw$i-p${i}0 "00:00:00:00:00:0$i 192.168.$i.1"
+        lsp-set-addresses sw$i-p${i}0 "00:00:00:00:00:0$i 192.168.$i.1 2001:db8:$i::11"
 
     ovs-vsctl -- add-port br-int vif$i -- \
         set interface vif$i \
@@ -10433,10 +11089,10 @@ done
 
 ovn-nbctl lr-add lr0
 for i in 1 2; do
-    ovn-nbctl lrp-add lr0 lrp$i 00:00:00:00:ff:0$i 192.168.$i.254/24
+    ovn-nbctl lrp-add lr0 lrp$i 00:00:00:00:ff:0$i 192.168.$i.254/24 2001:db8:$i::1/64
     ovn-nbctl -- lsp-add sw$i lrp$i-attachment \
               -- set Logical_Switch_Port lrp$i-attachment type=router \
-                options:router-port=lrp$i addresses='"00:00:00:00:ff:'0$i'"'
+                options:router-port=lrp$i addresses='"00:00:00:00:ff:0'$i' 192.168.'$i'.254 2001:db8:'$i'::1"'
 done
 
 OVN_POPULATE_ARP
@@ -10445,10 +11101,239 @@ ovn-nbctl --wait=hv sync
 
 test_ip_packet 1 1 000000000001 00000000ff01 $(ip_to_hex 192 168 1 1) $(ip_to_hex 192 168 1 254) 11 0000 7dae fcfc 0303
 test_ip_packet 1 1 000000000001 00000000ff01 $(ip_to_hex 192 168 1 1) $(ip_to_hex 192 168 1 254) 84 0000 7dae fcfd 0302
+test_ip6_packet 1 1 000000000001 00000000ff01 20010db8000100000000000000000011 20010db8000100000000000000000001 11 0015 dbb8303900155bac6b646f65206676676e6d66720a 0104 d570
 OVN_CHECK_PACKETS([hv1/vif1-tx.pcap], [vif1.expected])
 
 test_tcp_syn_packet 2 2 000000000002 00000000ff02 $(ip_to_hex 192 168 2 1) $(ip_to_hex 192 168 2 254) 0000 8b40 3039 0000 7bae 4486
+test_ip6_packet 2 2 000000000002 00000000ff02 20010db8000200000000000000000011 20010db8000200000000000000000001 84 0004 01020304 0103 627e
+test_tcp6_packet 2 2 000000000002 00000000ff02 20010db8000200000000000000000011 20010db8000200000000000000000001 8b40 3039 0000 4486
 OVN_CHECK_PACKETS([hv2/vif2-tx.pcap], [vif2.expected])
 
 OVN_CLEANUP([hv1], [hv2])
+AT_CLEANUP
+
+AT_SETUP([ovn -- ovn-controller exit])
+AT_SKIP_IF([test $HAVE_PYTHON = no])
+ovn_start
+# Logical network:
+# One Logical Router: ro, with two logical switches sw1 and sw2.
+# sw1 is for subnet 10.0.0.0/8
+# sw2 is for subnet 20.0.0.0/8
+# sw1 has a single port bound on hv1
+# sw2 has a single port bound on hv2
+
+ovn-nbctl lr-add ro
+ovn-nbctl ls-add sw1
+ovn-nbctl ls-add sw2
+
+sw1_ro_mac=00:00:10:00:00:01
+sw1_ro_ip=10.0.0.1
+sw2_ro_mac=00:00:20:00:00:01
+sw2_ro_ip=20.0.0.1
+sw1_p1_mac=00:00:10:00:00:02
+sw1_p1_ip=10.0.0.2
+sw2_p1_mac=00:00:20:00:00:02
+sw2_p1_ip=20.0.0.2
+
+ovn-nbctl lrp-add ro ro-sw1 $sw1_ro_mac ${sw1_ro_ip}/8
+ovn-nbctl lrp-add ro ro-sw2 $sw2_ro_mac ${sw2_ro_ip}/8
+ovn-nbctl lsp-add sw1 sw1-ro -- set Logical_Switch_Port sw1-ro type=router \
+  options:router-port=ro-sw1 addresses=\"$sw1_ro_mac\"
+ovn-nbctl lsp-add sw2 sw2-ro -- set Logical_Switch_Port sw2-ro type=router \
+  options:router-port=ro-sw2 addresses=\"$sw2_ro_mac\"
+
+ovn-nbctl lsp-add sw1 sw1-p1 \
+-- lsp-set-addresses sw1-p1 "$sw1_p1_mac $sw1_p1_ip"
+
+ovn-nbctl lsp-add sw2 sw2-p1 \
+-- lsp-set-addresses sw2-p1 "$sw2_p1_mac $sw2_p1_ip"
+
+net_add n1
+
+sim_add hv1
+as hv1
+ovs-vsctl add-br br-phys
+ovn_attach n1 br-phys 192.168.0.1
+ovs-vsctl -- add-port br-int hv1-vif1 -- \
+    set interface hv1-vif1 external-ids:iface-id=sw1-p1 \
+    options:tx_pcap=hv1/vif1-tx.pcap \
+    options:rxq_pcap=hv1/vif1-rx.pcap \
+    ofport-request=1
+
+sim_add hv2
+as hv2
+ovs-vsctl add-br br-phys
+ovn_attach n1 br-phys 192.168.0.2
+ovs-vsctl -- add-port br-int hv2-vif1 -- \
+    set interface hv2-vif1 external-ids:iface-id=sw2-p1 \
+    options:tx_pcap=hv2/vif1-tx.pcap \
+    options:rxq_pcap=hv2/vif1-rx.pcap \
+    ofport-request=1
+
+OVN_POPULATE_ARP
+
+sleep 1
+
+packet="inport==\"sw1-p1\" && eth.src==$sw1_p1_mac && eth.dst==$sw1_ro_mac &&
+       ip4 && ip.ttl==64 && ip4.src==$sw1_p1_ip && ip4.dst==$sw2_p1_ip &&
+       udp && udp.src==53 && udp.dst==4369"
+
+# Start by Sending the packet and make sure it makes it there as expected
+as hv1 ovs-appctl -t ovn-controller inject-pkt "$packet"
+
+# Expected packet has TTL decreased by 1
+expected="eth.src==$sw2_ro_mac && eth.dst==$sw2_p1_mac &&
+       ip4 && ip.ttl==63 && ip4.src==$sw1_p1_ip && ip4.dst==$sw2_p1_ip &&
+       udp && udp.src==53 && udp.dst==4369"
+echo $expected | ovstest test-ovn expr-to-packets > expected
+
+OVN_CHECK_PACKETS([hv2/vif1-tx.pcap], [expected])
+
+# Stop ovn-controller on hv2
+as hv2 ovs-appctl -t ovn-controller exit
+
+# Now send the packet again. This time, it should not arrive.
+as hv1 ovs-appctl -t ovn-controller inject-pkt "$packet"
+
+OVN_CHECK_PACKETS([hv2/vif1-tx.pcap], [expected])
+
+# Start ovn-controller again just so OVN_CLEANUP doesn't complain
+as hv2 start_daemon ovn-controller
+
+OVN_CLEANUP([hv1],[hv2])
+AT_CLEANUP
+
+AT_SETUP([ovn -- ovn-controller restart])
+AT_SKIP_IF([test $HAVE_PYTHON = no])
+ovn_start
+
+# Logical network:
+# One Logical Router: ro, with two logical switches sw1 and sw2.
+# sw1 is for subnet 10.0.0.0/8
+# sw2 is for subnet 20.0.0.0/8
+# sw1 has a single port bound on hv1
+# sw2 has a single port bound on hv2
+
+ovn-nbctl lr-add ro
+ovn-nbctl ls-add sw1
+ovn-nbctl ls-add sw2
+
+sw1_ro_mac=00:00:10:00:00:01
+sw1_ro_ip=10.0.0.1
+sw2_ro_mac=00:00:20:00:00:01
+sw2_ro_ip=20.0.0.1
+sw1_p1_mac=00:00:10:00:00:02
+sw1_p1_ip=10.0.0.2
+sw2_p1_mac=00:00:20:00:00:02
+sw2_p1_ip=20.0.0.2
+
+ovn-nbctl lrp-add ro ro-sw1 $sw1_ro_mac ${sw1_ro_ip}/8
+ovn-nbctl lrp-add ro ro-sw2 $sw2_ro_mac ${sw2_ro_ip}/8
+ovn-nbctl lsp-add sw1 sw1-ro -- set Logical_Switch_Port sw1-ro type=router \
+  options:router-port=ro-sw1 addresses=\"$sw1_ro_mac\"
+ovn-nbctl lsp-add sw2 sw2-ro -- set Logical_Switch_Port sw2-ro type=router \
+  options:router-port=ro-sw2 addresses=\"$sw2_ro_mac\"
+
+ovn-nbctl lsp-add sw1 sw1-p1 \
+-- lsp-set-addresses sw1-p1 "$sw1_p1_mac $sw1_p1_ip"
+
+ovn-nbctl lsp-add sw2 sw2-p1 \
+-- lsp-set-addresses sw2-p1 "$sw2_p1_mac $sw2_p1_ip"
+
+net_add n1
+
+sim_add hv1
+as hv1
+ovs-vsctl add-br br-phys
+ovn_attach n1 br-phys 192.168.0.1
+ovs-vsctl -- add-port br-int hv1-vif1 -- \
+    set interface hv1-vif1 external-ids:iface-id=sw1-p1 \
+    options:tx_pcap=hv1/vif1-tx.pcap \
+    options:rxq_pcap=hv1/vif1-rx.pcap \
+    ofport-request=1
+
+sim_add hv2
+as hv2
+ovs-vsctl add-br br-phys
+ovn_attach n1 br-phys 192.168.0.2
+ovs-vsctl -- add-port br-int hv2-vif1 -- \
+    set interface hv2-vif1 external-ids:iface-id=sw2-p1 \
+    options:tx_pcap=hv2/vif1-tx.pcap \
+    options:rxq_pcap=hv2/vif1-rx.pcap \
+    ofport-request=1
+
+OVN_POPULATE_ARP
+
+sleep 1
+
+packet="inport==\"sw1-p1\" && eth.src==$sw1_p1_mac && eth.dst==$sw1_ro_mac &&
+       ip4 && ip.ttl==64 && ip4.src==$sw1_p1_ip && ip4.dst==$sw2_p1_ip &&
+       udp && udp.src==53 && udp.dst==4369"
+
+# Start by Sending the packet and make sure it makes it there as expected
+as hv1 ovs-appctl -t ovn-controller inject-pkt "$packet"
+
+# Expected packet has TTL decreased by 1
+expected="eth.src==$sw2_ro_mac && eth.dst==$sw2_p1_mac &&
+       ip4 && ip.ttl==63 && ip4.src==$sw1_p1_ip && ip4.dst==$sw2_p1_ip &&
+       udp && udp.src==53 && udp.dst==4369"
+echo $expected | ovstest test-ovn expr-to-packets > expected
+
+OVN_CHECK_PACKETS([hv2/vif1-tx.pcap], [expected])
+
+# Stop ovn-controller on hv2 with --restart flag
+as hv2 ovs-appctl -t ovn-controller exit --restart
+
+# Now send the packet again. This time, it should still arrive
+as hv1 ovs-appctl -t ovn-controller inject-pkt "$packet"
+
+cat expected expected > expected2
+
+OVN_CHECK_PACKETS([hv2/vif1-tx.pcap], [expected2])
+
+# Start ovn-controller again just so OVN_CLEANUP doesn't complain
+as hv2 start_daemon ovn-controller
+
+OVN_CLEANUP([hv1],[hv2])
+
+AT_CLEANUP
+
+AT_SETUP([ovn -- ipam to non-ipam])
+ovn_start
+
+ovn-nbctl ls-add sw0
+ovn-nbctl lsp-add sw0 p0 -- lsp-set-addresses p0 dynamic
+ovn-nbctl --wait=sb add Logical-Switch sw0 other_config subnet=192.168.1.0/24
+
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p0 dynamic_addresses], [0],
+    ["0a:00:00:00:00:01 192.168.1.2"
+])
+
+ovn-nbctl lsp-set-addresses p0 router
+
+ovn-nbctl get Logical-Switch-Port p0 dynamic_addresses
+
+AT_CHECK([ovn-nbctl get Logical-Switch-Port p0 dynamic_addresses], [0], [[[]]
+])
+AT_CLEANUP
+
+AT_SETUP([ovn -- ipam router ports])
+ovn_start
+
+ovn-nbctl ls-add sw
+ovn-nbctl set logical_switch sw other-config:subnet=192.168.1.0/24
+
+for i in 2 3 4; do
+    ovn-nbctl lr-add ro$i
+    ovn-nbctl lsp-add sw swp$i
+    ovn-nbctl --wait=sb lsp-set-addresses swp$i "02:00:00:00:00:0$i dynamic"
+    cidr=$(ovn-nbctl get logical_switch_port swp$i dynamic_addresses |cut -f2 -d' '|cut -f1 -d\")
+    ovn-nbctl lrp-add ro$i rop$i 02:00:00:00:00:0$i $cidr/24 -- set logical_switch_port swp$i type=router options:router-port=rop$i addresses=router;
+    AT_CHECK_UNQUOTED([ovn-nbctl get logical_router_port rop$i networks], [0], [[["192.168.1.$i/24"]]
+])
+done
+
+ovn-nbctl list logical_switch_port
+ovn-nbctl list logical_router_port
+
 AT_CLEANUP

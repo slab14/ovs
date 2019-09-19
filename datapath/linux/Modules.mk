@@ -17,7 +17,9 @@ openvswitch_sources += \
 	linux/compat/ip6_tunnel.c \
 	linux/compat/lisp.c \
 	linux/compat/netdevice.c \
+	linux/compat/nf_conncount.c \
 	linux/compat/nf_conntrack_core.c \
+	linux/compat/nf_conntrack_proto.c \
 	linux/compat/nf_conntrack_reasm.c \
 	linux/compat/reciprocal_div.c \
 	linux/compat/skbuff-openvswitch.c \
@@ -61,6 +63,7 @@ openvswitch_headers += \
 	linux/compat/include/linux/reciprocal_div.h \
 	linux/compat/include/linux/rtnetlink.h \
 	linux/compat/include/linux/skbuff.h \
+	linux/compat/include/linux/static_key.h \
 	linux/compat/include/linux/stddef.h \
 	linux/compat/include/linux/types.h \
 	linux/compat/include/linux/u64_stats_sync.h \
@@ -83,6 +86,7 @@ openvswitch_headers += \
 	linux/compat/include/net/ip6_route.h \
 	linux/compat/include/net/ip6_tunnel.h \
 	linux/compat/include/net/ipv6.h \
+	linux/compat/include/net/ipv6_frag.h \
 	linux/compat/include/net/mpls.h \
 	linux/compat/include/net/net_namespace.h \
 	linux/compat/include/net/netlink.h \
@@ -99,6 +103,7 @@ openvswitch_headers += \
 	linux/compat/include/net/vxlan.h \
 	linux/compat/include/net/netfilter/nf_conntrack.h \
 	linux/compat/include/net/netfilter/nf_conntrack_core.h \
+	linux/compat/include/net/netfilter/nf_conntrack_count.h \
 	linux/compat/include/net/netfilter/nf_conntrack_expect.h \
 	linux/compat/include/net/netfilter/nf_conntrack_helper.h \
 	linux/compat/include/net/netfilter/nf_conntrack_labels.h \
@@ -107,5 +112,9 @@ openvswitch_headers += \
 	linux/compat/include/net/netfilter/nf_nat.h \
 	linux/compat/include/net/netfilter/ipv6/nf_defrag_ipv6.h \
 	linux/compat/include/net/sctp/checksum.h \
-	linux/compat/include/net/erspan.h
+	linux/compat/include/net/erspan.h \
+	linux/compat/include/uapi/linux/netfilter.h \
+	linux/compat/include/linux/mm.h \
+	linux/compat/include/linux/netfilter.h \
+	linux/compat/include/linux/overflow.h
 EXTRA_DIST += linux/compat/build-aux/export-check-whitelist

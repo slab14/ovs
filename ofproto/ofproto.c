@@ -3017,6 +3017,9 @@ remove_groups_rcu(struct ofgroup **groups)
 static bool ofproto_fix_meter_action(const struct ofproto *,
                                      struct ofpact_meter *);
 
+static bool ofproto_fix_controller_action(const struct ofproto *,
+                                          struct ofpact_controller *);
+
 /* Creates and returns a new 'struct rule_actions', whose actions are a copy
  * of from the 'ofpacts_len' bytes of 'ofpacts'. */
 const struct rule_actions *
@@ -3427,6 +3430,17 @@ ofproto_check_ofpacts(struct ofproto *ofproto,
         if (a->type == OFPACT_METER &&
             !ofproto_fix_meter_action(ofproto, ofpact_get_METER(a))) {
             return OFPERR_OFPMMFC_INVALID_METER;
+        }
+
+        if (a->type == OFPACT_CONTROLLER) {
+            struct ofpact_controller *ca = ofpact_get_CONTROLLER(a);
+
+            if (!ofproto_fix_controller_action(ofproto, ca)) {
+                static struct vlog_rate_limit rl2 = VLOG_RATE_LIMIT_INIT(1, 5);
+                VLOG_INFO_RL(&rl2, "%s: controller action specified an "
+                             "unknown meter id: %d",
+                             ofproto->name, ca->meter_id);
+            }
         }
 
         if (a->type == OFPACT_GROUP
@@ -6292,6 +6306,36 @@ ofproto_fix_meter_action(const struct ofproto *ofproto,
     return false;
 }
 
+/* This is used in instruction validation at flow set-up time, to map
+ * the OpenFlow meter ID in a controller action to the corresponding
+ * datapath provider meter ID.  If either does not exist, sets the
+ * provider meter id to a value to prevent the provider from using it
+ * and returns false.  Otherwise, updates the meter action and returns
+ * true. */
+static bool
+ofproto_fix_controller_action(const struct ofproto *ofproto,
+                              struct ofpact_controller *ca)
+{
+    if (ca->meter_id == NX_CTLR_NO_METER) {
+        ca->provider_meter_id = UINT32_MAX;
+        return true;
+    }
+
+    const struct meter *meter = ofproto_get_meter(ofproto, ca->meter_id);
+
+    if (meter && meter->provider_meter_id.uint32 != UINT32_MAX) {
+        /* Update the action with the provider's meter ID, so that we
+         * do not need any synchronization between ofproto_dpif_xlate
+         * and ofproto for meter table access. */
+        ca->provider_meter_id = meter->provider_meter_id.uint32;
+        return true;
+    }
+
+    /* Prevent the meter from being set by the ofproto provider. */
+    ca->provider_meter_id = UINT32_MAX;
+    return false;
+}
+
 /* Finds the meter invoked by 'rule''s actions and adds 'rule' to the meter's
  * list of rules. */
 static void
@@ -7148,6 +7192,8 @@ modify_group_start(struct ofproto *ofproto, struct ofproto_group_mod *ogm)
     *CONST_CAST(long long int *, &(new_group->created)) = old_group->created;
     *CONST_CAST(long long int *, &(new_group->modified)) = time_msec();
 
+    *CONST_CAST(uint32_t *, &(new_group->n_buckets)) =
+        ovs_list_size(&(new_group->buckets));
     group_collection_add(&ogm->old_groups, old_group);
 
     /* Mark the old group for deletion. */
@@ -7347,6 +7393,8 @@ ofproto_group_mod_finish(struct ofproto *ofproto,
         rf.xid = req->request->xid;
         rf.reason = OFPRFR_GROUP_MOD;
         rf.group_mod = &ogm->gm;
+        rf.new_buckets = new_group ? &new_group->buckets : NULL;
+        rf.group_existed = group_collection_n(&ogm->old_groups) > 0;
         connmgr_send_requestforward(ofproto->connmgr, req->ofconn, &rf);
     }
 }

@@ -161,7 +161,7 @@ Isaku Yamahata                     yamahata@valinux.co.jp
 Ivan Dyukov                        i.dyukov@samsung.com
 IWASE Yusuke                       iwase.yusuke@gmail.com
 Jakub Libosvar                     libosvar@redhat.com
-Jakub Sitnicki                     jkbs@redhat.com
+Jakub Sitnicki                     jsitnicki@gmail.com
 James P.                           roampune@gmail.com
 James Page                         james.page@ubuntu.com
 Jamie Lennox                       jamielennox@gmail.com
@@ -189,8 +189,10 @@ Justin Pettit                      jpettit@ovn.org
 Kaige Fu                           fukaige@huawei.com
 Keith Amidon                       keith@nicira.com
 Ken Ajiro                          ajiro@mxw.nes.nec.co.jp
+Ken Sanislo                        ken@intherack.com
 Kenneth Duda                       kduda@arista.com
 Kentaro Ebisawa                    ebiken.g@gmail.com
+Keshav Gupta                       keshav.gupta@ericsson.com
 Kevin Lo                           kevlo@FreeBSD.org
 Kevin Traynor                      kevin.traynor@intel.com
 Khem Raj                           raj.khem@gmail.com
@@ -284,6 +286,7 @@ Rob Adams                          readams@readams.net
 Robert Åkerblom-Andersson          Robert.nr1@gmail.com
 Robert Wojciechowicz               robertx.wojciechowicz@intel.com
 Rob Hoes                           rob.hoes@citrix.com
+Rohith Basavaraja                  rohith.basavaraja@gmail.com
 Roi Dayan                          roid@mellanox.com
 Róbert Mulik                       robert.mulik@ericsson.com
 Romain Lenglet                     romain.lenglet@berabera.info
@@ -535,6 +538,7 @@ Murali R                        muralirdev@gmail.com
 Nagi Reddy Jonnala              njonnala@Brocade.com
 Niels van Adrichem              N.L.M.vanAdrichem@tudelft.nl
 Niklas Andersson                nandersson@nicira.com
+Oscar Wilde                     xdxiaobin@gmail.com
 Pankaj Thakkar                  thakkar@nicira.com
 Pasi Kärkkäinen                 pasik@iki.fi
 Patrik Andersson R              patrik.r.andersson@ericsson.com

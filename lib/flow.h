@@ -133,6 +133,7 @@ bool parse_ipv6_ext_hdrs(const void **datap, size_t *sizep, uint8_t *nw_proto,
                          uint8_t *nw_frag);
 ovs_be16 parse_dl_type(const struct eth_header *data_, size_t size);
 bool parse_nsh(const void **datap, size_t *sizep, struct ovs_key_nsh *key);
+uint16_t parse_tcp_flags(struct dp_packet *packet);
 
 static inline uint64_t
 flow_get_xreg(const struct flow *flow, int idx)
@@ -1184,6 +1185,28 @@ static inline bool is_stp(const struct flow *flow)
 {
     return (flow->dl_type == htons(FLOW_DL_TYPE_NONE)
             && eth_addr_equals(flow->dl_dst, eth_addr_stp));
+}
+
+/* Returns true if flow->tp_dst equals 'port'.  If 'wc' is nonnull, sets
+ * appropriate bits in wc->masks.tp_dst to account for the test.
+ *
+ * The caller must already have ensured that 'flow' is a protocol for which
+ * tp_dst is relevant. */
+static inline bool tp_dst_equals(const struct flow *flow, uint16_t port,
+                                 struct flow_wildcards *wc)
+{
+    uint16_t diff = port ^ ntohs(flow->tp_dst);
+    if (wc) {
+        if (diff) {
+            /* Set mask for the most significant mismatching bit. */
+            int ofs = raw_clz64((uint64_t) diff << 48); /* range [0,15] */
+            wc->masks.tp_dst |= htons(0x8000 >> ofs);
+        } else {
+            /* Must match all bits. */
+            wc->masks.tp_dst = OVS_BE16_MAX;
+        }
+    }
+    return !diff;
 }
 
 #endif /* flow.h */

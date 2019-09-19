@@ -126,11 +126,11 @@ stream_usage(const char *name, bool active, bool passive,
     printf("\n");
     if (active) {
         printf("Active %s connection methods:\n", name);
-        printf("  tcp:IP:PORT             "
-               "PORT at remote IP\n");
+        printf("  tcp:HOST:PORT           "
+               "PORT at remote HOST\n");
 #ifdef HAVE_OPENSSL
-        printf("  ssl:IP:PORT             "
-               "SSL PORT at remote IP\n");
+        printf("  ssl:HOST:PORT           "
+               "SSL PORT at remote HOST\n");
 #endif
         printf("  unix:FILE               "
                "Unix domain socket named FILE\n");
@@ -751,7 +751,7 @@ stream_parse_target_with_default_port(const char *target, int default_port,
                                       struct sockaddr_storage *ss)
 {
     return ((!strncmp(target, "tcp:", 4) || !strncmp(target, "ssl:", 4))
-            && inet_parse_active(target + 4, default_port, ss));
+            && inet_parse_active(target + 4, default_port, ss, true));
 }
 
 /* Attempts to guess the content type of a stream whose first few bytes were

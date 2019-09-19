@@ -112,8 +112,11 @@ main(int argc, char *argv[])
     char *args = process_escape_args(argv);
     shash_init(&local_options);
     parse_options(argc, argv, &local_options);
-    commands = ctl_parse_commands(argc - optind, argv + optind, &local_options,
-                                  &n_commands);
+    char *error = ctl_parse_commands(argc - optind, argv + optind,
+                                     &local_options, &commands, &n_commands);
+    if (error) {
+        ctl_fatal("%s", error);
+    }
     VLOG(ctl_might_write_to_db(commands, n_commands) ? VLL_INFO : VLL_DBG,
          "Called as %s", args);
 
@@ -842,9 +845,14 @@ cmd_lflow_list(struct ctl_context *ctx)
 {
     const struct sbrec_datapath_binding *datapath = NULL;
     if (ctx->argc > 1) {
-        datapath = (const struct sbrec_datapath_binding *)
-            ctl_get_row(ctx, &sbrec_table_datapath_binding,
-                        ctx->argv[1], false);
+        const struct ovsdb_idl_row *row;
+        char *error = ctl_get_row(ctx, &sbrec_table_datapath_binding,
+                                  ctx->argv[1], false, &row);
+        if (error) {
+            ctl_fatal("%s", error);
+        }
+
+        datapath = (const struct sbrec_datapath_binding *)row;
         if (datapath) {
             ctx->argc--;
             ctx->argv++;
@@ -1234,6 +1242,9 @@ run_prerequisites(struct ctl_command *commands, size_t n_commands,
 
             sbctl_context_init(&sbctl_ctx, c, idl, NULL, NULL);
             (c->syntax->prerequisites)(&sbctl_ctx.base);
+            if (sbctl_ctx.base.error) {
+                ctl_fatal("%s", sbctl_ctx.base.error);
+            }
             sbctl_context_done(&sbctl_ctx, c);
 
             ovs_assert(!c->output.string);
@@ -1252,7 +1263,6 @@ do_sbctl(const char *args, struct ctl_command *commands, size_t n_commands,
     struct sbctl_context sbctl_ctx;
     struct ctl_command *c;
     struct shash_node *node;
-    char *error = NULL;
 
     txn = the_idl_txn = ovsdb_idl_txn_create(idl);
     if (dry_run) {
@@ -1277,6 +1287,9 @@ do_sbctl(const char *args, struct ctl_command *commands, size_t n_commands,
         sbctl_context_init_command(&sbctl_ctx, c);
         if (c->syntax->run) {
             (c->syntax->run)(&sbctl_ctx.base);
+        }
+        if (sbctl_ctx.base.error) {
+            ctl_fatal("%s", sbctl_ctx.base.error);
         }
         sbctl_context_done_command(&sbctl_ctx, c);
 
@@ -1313,11 +1326,13 @@ do_sbctl(const char *args, struct ctl_command *commands, size_t n_commands,
             if (c->syntax->postprocess) {
                 sbctl_context_init(&sbctl_ctx, c, idl, txn, symtab);
                 (c->syntax->postprocess)(&sbctl_ctx.base);
+                if (sbctl_ctx.base.error) {
+                    ctl_fatal("%s", sbctl_ctx.base.error);
+                }
                 sbctl_context_done(&sbctl_ctx, c);
             }
         }
     }
-    error = xstrdup(ovsdb_idl_txn_get_error(txn));
 
     switch (status) {
     case TXN_UNCOMMITTED:
@@ -1336,7 +1351,7 @@ do_sbctl(const char *args, struct ctl_command *commands, size_t n_commands,
         goto try_again;
 
     case TXN_ERROR:
-        ctl_fatal("transaction error: %s", error);
+        ctl_fatal("transaction error: %s", ovsdb_idl_txn_get_error(txn));
 
     case TXN_NOT_LOCKED:
         /* Should not happen--we never call ovsdb_idl_set_lock(). */
@@ -1345,7 +1360,6 @@ do_sbctl(const char *args, struct ctl_command *commands, size_t n_commands,
     default:
         OVS_NOT_REACHED();
     }
-    free(error);
 
     ovsdb_symbol_table_destroy(symtab);
 
@@ -1402,7 +1416,6 @@ try_again:
         table_destroy(c->table);
         free(c->table);
     }
-    free(error);
     return false;
 }
 

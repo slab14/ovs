@@ -732,16 +732,7 @@ dpif_port_query_by_name(const struct dpif *dpif, const char *devname,
 
 /* Returns the Netlink PID value to supply in OVS_ACTION_ATTR_USERSPACE
  * actions as the OVS_USERSPACE_ATTR_PID attribute's value, for use in
- * flows whose packets arrived on port 'port_no'.  In the case where the
- * provider allocates multiple Netlink PIDs to a single port, it may use
- * 'hash' to spread load among them.  The caller need not use a particular
- * hash function; a 5-tuple hash is suitable.
- *
- * (The datapath implementation might use some different hash function for
- * distributing packets received via flow misses among PIDs.  This means
- * that packets received via flow misses might be reordered relative to
- * packets received via userspace actions.  This is not ordinarily a
- * problem.)
+ * flows whose packets arrived on port 'port_no'.
  *
  * A 'port_no' of ODPP_NONE is a special case: it returns a reserved PID, not
  * allocated to any port, that the client may use for special purposes.
@@ -752,10 +743,10 @@ dpif_port_query_by_name(const struct dpif *dpif, const char *devname,
  * update all of the flows that it installed that contain
  * OVS_ACTION_ATTR_USERSPACE actions. */
 uint32_t
-dpif_port_get_pid(const struct dpif *dpif, odp_port_t port_no, uint32_t hash)
+dpif_port_get_pid(const struct dpif *dpif, odp_port_t port_no)
 {
     return (dpif->dpif_class->port_get_pid
-            ? (dpif->dpif_class->port_get_pid)(dpif, port_no, hash)
+            ? (dpif->dpif_class->port_get_pid)(dpif, port_no)
             : 0);
 }
 
@@ -1883,27 +1874,41 @@ dpif_meter_get_features(const struct dpif *dpif,
     }
 }
 
-/* Adds or modifies meter identified by 'meter_id' in 'dpif'.  If '*meter_id'
- * is UINT32_MAX, adds a new meter, otherwise modifies an existing meter.
+/* Adds or modifies the meter in 'dpif' with the given 'meter_id' and
+ * the configuration in 'config'.
  *
- * If meter is successfully added, sets '*meter_id' to the new meter's
- * meter number. */
+ * The meter id specified through 'config->meter_id' is ignored. */
 int
-dpif_meter_set(struct dpif *dpif, ofproto_meter_id *meter_id,
+dpif_meter_set(struct dpif *dpif, ofproto_meter_id meter_id,
                struct ofputil_meter_config *config)
 {
-    int error;
-
     COVERAGE_INC(dpif_meter_set);
 
-    error = dpif->dpif_class->meter_set(dpif, meter_id, config);
+    if (!(config->flags & (OFPMF13_KBPS | OFPMF13_PKTPS))) {
+        return EBADF; /* Rate unit type not set. */
+    }
+
+    if ((config->flags & OFPMF13_KBPS) && (config->flags & OFPMF13_PKTPS)) {
+        return EBADF; /* Both rate units may not be set. */
+    }
+
+    if (config->n_bands == 0) {
+        return EINVAL;
+    }
+
+    for (size_t i = 0; i < config->n_bands; i++) {
+        if (config->bands[i].rate == 0) {
+            return EDOM; /* Rate must be non-zero */
+        }
+    }
+
+    int error = dpif->dpif_class->meter_set(dpif, meter_id, config);
     if (!error) {
         VLOG_DBG_RL(&dpmsg_rl, "%s: DPIF meter %"PRIu32" set",
-                    dpif_name(dpif), meter_id->uint32);
+                    dpif_name(dpif), meter_id.uint32);
     } else {
         VLOG_WARN_RL(&error_rl, "%s: failed to set DPIF meter %"PRIu32": %s",
-                     dpif_name(dpif), meter_id->uint32, ovs_strerror(error));
-        meter_id->uint32 = UINT32_MAX;
+                     dpif_name(dpif), meter_id.uint32, ovs_strerror(error));
     }
     return error;
 }

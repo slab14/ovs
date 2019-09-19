@@ -163,8 +163,20 @@ del_ufid_tc_mapping(const ovs_u128 *ufid)
     ovs_mutex_unlock(&ufid_lock);
 }
 
-/* Add ufid entry to ufid_tc hashmap.
- * If entry exists already it will be replaced. */
+/* Wrapper function to delete filter and ufid tc mapping */
+static int
+del_filter_and_ufid_mapping(int ifindex, int prio, int handle,
+                            uint32_t block_id, const ovs_u128 *ufid)
+{
+    int err;
+
+    err = tc_del_filter(ifindex, prio, handle, block_id);
+    del_ufid_tc_mapping(ufid);
+
+    return err;
+}
+
+/* Add ufid entry to ufid_tc hashmap. */
 static void
 add_ufid_tc_mapping(const ovs_u128 *ufid, int prio, int handle,
                     struct netdev *netdev, int ifindex)
@@ -172,8 +184,6 @@ add_ufid_tc_mapping(const ovs_u128 *ufid, int prio, int handle,
     size_t ufid_hash = hash_bytes(ufid, sizeof *ufid, 0);
     size_t tc_hash = hash_int(hash_int(prio, handle), ifindex);
     struct ufid_tc_data *new_data = xzalloc(sizeof *new_data);
-
-    del_ufid_tc_mapping(ufid);
 
     new_data->ufid = *ufid;
     new_data->prio = prio;
@@ -444,6 +454,7 @@ parse_tc_flower_to_match(struct tc_flower *flower,
             match_set_nw_proto(match, key->ip_proto);
         }
 
+        match_set_nw_tos_masked(match, key->ip_tos, mask->ip_tos);
         match_set_nw_ttl_masked(match, key->ip_ttl, mask->ip_ttl);
 
         if (mask->flags) {
@@ -876,14 +887,18 @@ test_key_and_mask(struct match *match)
                key->nw_proto == IPPROTO_ICMPV6) {
         if (mask->tp_src) {
             VLOG_DBG_RL(&rl,
-                        "offloading attribute icmp_type isn't supported");
+                        "offloading attribute icmpv6_type isn't supported");
             return EOPNOTSUPP;
         }
         if (mask->tp_dst) {
             VLOG_DBG_RL(&rl,
-                        "offloading attribute icmp_code isn't supported");
+                        "offloading attribute icmpv6_code isn't supported");
             return EOPNOTSUPP;
         }
+    } else if (key->dl_type == htons(OFP_DL_TYPE_NOT_ETH_TYPE)) {
+        VLOG_DBG_RL(&rl,
+                    "offloading of non-ethernet packets isn't supported");
+        return EOPNOTSUPP;
     }
 
     if (!is_all_zeros(mask, sizeof *mask)) {
@@ -955,10 +970,12 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
             && (vid_mask || pcp_mask)) {
             if (vid_mask) {
                 flower.key.vlan_id = vlan_tci_to_vid(key->vlans[0].tci);
+                flower.mask.vlan_id = vlan_tci_to_vid(mask->vlans[0].tci);
                 VLOG_DBG_RL(&rl, "vlan_id: %d\n", flower.key.vlan_id);
             }
             if (pcp_mask) {
                 flower.key.vlan_prio = vlan_tci_to_pcp(key->vlans[0].tci);
+                flower.mask.vlan_prio = vlan_tci_to_pcp(mask->vlans[0].tci);
                 VLOG_DBG_RL(&rl, "vlan_prio: %d\n", flower.key.vlan_prio);
             }
             flower.key.encap_eth_type = flower.key.eth_type;
@@ -987,8 +1004,13 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
     if (is_ip_any(key)) {
         flower.key.ip_proto = key->nw_proto;
         flower.mask.ip_proto = mask->nw_proto;
+        mask->nw_proto = 0;
+        flower.key.ip_tos = key->nw_tos;
+        flower.mask.ip_tos = mask->nw_tos;
+        mask->nw_tos = 0;
         flower.key.ip_ttl = key->nw_ttl;
         flower.mask.ip_ttl = mask->nw_ttl;
+        mask->nw_ttl = 0;
 
         if (mask->nw_frag & FLOW_NW_FRAG_ANY) {
             flower.mask.flags |= TCA_FLOWER_KEY_FLAGS_IS_FRAGMENT;
@@ -1033,10 +1055,6 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
             mask->tp_src = 0;
             mask->tp_dst = 0;
         }
-
-        mask->nw_tos = 0;
-        mask->nw_proto = 0;
-        mask->nw_ttl = 0;
 
         if (key->dl_type == htons(ETH_P_IP)) {
             flower.key.ipv4.ipv4_src = key->nw_src;
@@ -1115,7 +1133,7 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
     handle = get_ufid_tc_mapping(ufid, &prio, NULL);
     if (handle && prio) {
         VLOG_DBG_RL(&rl, "updating old handle: %d prio: %d", handle, prio);
-        tc_del_filter(ifindex, prio, handle, block_id);
+        del_filter_and_ufid_mapping(ifindex, prio, handle, block_id, ufid);
     }
 
     if (!prio) {
@@ -1169,9 +1187,9 @@ netdev_tc_flow_get(struct netdev *netdev OVS_UNUSED,
         return -ifindex;
     }
 
-    VLOG_DBG_RL(&rl, "flow get (dev %s prio %d handle %d)",
-                netdev_get_name(dev), prio, handle);
-    block_id = get_block_id_from_netdev(netdev);
+    block_id = get_block_id_from_netdev(dev);
+    VLOG_DBG_RL(&rl, "flow get (dev %s prio %d handle %d block_id %d)",
+                netdev_get_name(dev), prio, handle, block_id);
     err = tc_get_flower(ifindex, prio, handle, &flower, block_id);
     netdev_close(dev);
     if (err) {
@@ -1215,7 +1233,7 @@ netdev_tc_flow_del(struct netdev *netdev OVS_UNUSED,
         return -ifindex;
     }
 
-    block_id = get_block_id_from_netdev(netdev);
+    block_id = get_block_id_from_netdev(dev);
 
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -1226,8 +1244,7 @@ netdev_tc_flow_del(struct netdev *netdev OVS_UNUSED,
         }
     }
 
-    error = tc_del_filter(ifindex, prio, handle, block_id);
-    del_ufid_tc_mapping(ufid);
+    error = del_filter_and_ufid_mapping(ifindex, prio, handle, block_id, ufid);
 
     netdev_close(dev);
 
@@ -1235,10 +1252,16 @@ netdev_tc_flow_del(struct netdev *netdev OVS_UNUSED,
 }
 
 static void
-probe_multi_mask_per_prio(int ifindex, uint32_t block_id)
+probe_multi_mask_per_prio(int ifindex)
 {
     struct tc_flower flower;
+    int block_id = 0;
     int error;
+
+    error = tc_add_del_ingress_qdisc(ifindex, true, block_id);
+    if (error) {
+        return;
+    }
 
     memset(&flower, 0, sizeof flower);
 
@@ -1249,7 +1272,7 @@ probe_multi_mask_per_prio(int ifindex, uint32_t block_id)
 
     error = tc_replace_flower(ifindex, 1, 1, &flower, block_id);
     if (error) {
-        return;
+        goto out;
     }
 
     memset(&flower.key.src_mac, 0x11, sizeof flower.key.src_mac);
@@ -1259,18 +1282,22 @@ probe_multi_mask_per_prio(int ifindex, uint32_t block_id)
     tc_del_filter(ifindex, 1, 1, block_id);
 
     if (error) {
-        return;
+        goto out;
     }
 
     tc_del_filter(ifindex, 1, 2, block_id);
 
     multi_mask_per_prio = true;
     VLOG_INFO("probe tc: multiple masks on single tc prio is supported.");
+
+out:
+    tc_add_del_ingress_qdisc(ifindex, false, block_id);
 }
 
 static void
 probe_tc_block_support(int ifindex)
 {
+    struct tc_flower flower;
     uint32_t block_id = 1;
     int error;
 
@@ -1279,10 +1306,21 @@ probe_tc_block_support(int ifindex)
         return;
     }
 
+    memset(&flower, 0, sizeof flower);
+
+    flower.key.eth_type = htons(ETH_P_IP);
+    flower.mask.eth_type = OVS_BE16_MAX;
+    memset(&flower.key.dst_mac, 0x11, sizeof flower.key.dst_mac);
+    memset(&flower.mask.dst_mac, 0xff, sizeof flower.mask.dst_mac);
+
+    error = tc_replace_flower(ifindex, 1, 1, &flower, block_id);
+
     tc_add_del_ingress_qdisc(ifindex, false, block_id);
 
-    block_support = true;
-    VLOG_INFO("probe tc: block offload is supported.");
+    if (!error) {
+        block_support = true;
+        VLOG_INFO("probe tc: block offload is supported.");
+    }
 }
 
 int
@@ -1301,9 +1339,17 @@ netdev_tc_init_flow_api(struct netdev *netdev)
         return -ifindex;
     }
 
+    /* make sure there is no ingress qdisc */
+    tc_add_del_ingress_qdisc(ifindex, false, 0);
+
     if (ovsthread_once_start(&block_once)) {
         probe_tc_block_support(ifindex);
         ovsthread_once_done(&block_once);
+    }
+
+    if (ovsthread_once_start(&multi_mask_once)) {
+        probe_multi_mask_per_prio(ifindex);
+        ovsthread_once_done(&multi_mask_once);
     }
 
     block_id = get_block_id_from_netdev(netdev);
@@ -1316,11 +1362,6 @@ netdev_tc_init_flow_api(struct netdev *netdev)
     }
 
     VLOG_INFO("added ingress qdisc to %s", netdev_get_name(netdev));
-
-    if (ovsthread_once_start(&multi_mask_once)) {
-        probe_multi_mask_per_prio(ifindex, block_id);
-        ovsthread_once_done(&multi_mask_once);
-    }
 
     return 0;
 }

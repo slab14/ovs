@@ -922,6 +922,12 @@ ovsdb_idl_is_alive(const struct ovsdb_idl *idl)
            idl->state != IDL_S_ERROR;
 }
 
+bool
+ovsdb_idl_is_connected(const struct ovsdb_idl *idl)
+{
+    return idl->session && jsonrpc_session_is_connected(idl->session);
+}
+
 /* Returns the last error reported on a connection by 'idl'.  The return value
  * is 0 only if no connection made by 'idl' has ever encountered an error and
  * a negative response to a schema request has never been received. See
@@ -1117,6 +1123,20 @@ ovsdb_idl_db_get_mode(struct ovsdb_idl_db *db,
 }
 
 static void
+ovsdb_idl_db_set_mode(struct ovsdb_idl_db *db,
+                      const struct ovsdb_idl_column *column,
+                      unsigned char mode)
+{
+    const struct ovsdb_idl_table *table = ovsdb_idl_table_from_column(db,
+                                                                      column);
+    size_t column_idx = column - table->class_->columns;
+
+    if (table->modes[column_idx] != mode) {
+        *ovsdb_idl_db_get_mode(db, column) = mode;
+    }
+}
+
+static void
 add_ref_table(struct ovsdb_idl_db *db, const struct ovsdb_base_type *base)
 {
     if (base->type == OVSDB_TYPE_UUID && base->uuid.refTableName) {
@@ -1136,7 +1156,7 @@ static void
 ovsdb_idl_db_add_column(struct ovsdb_idl_db *db,
                         const struct ovsdb_idl_column *column)
 {
-    *ovsdb_idl_db_get_mode(db, column) = OVSDB_IDL_MONITOR | OVSDB_IDL_ALERT;
+    ovsdb_idl_db_set_mode(db, column, OVSDB_IDL_MONITOR | OVSDB_IDL_ALERT);
     add_ref_table(db, &column->type.key);
     add_ref_table(db, &column->type.value);
 }
@@ -3020,11 +3040,13 @@ ovsdb_idl_modify_row_by_diff(struct ovsdb_idl_row *row,
 {
     bool changed;
 
+    ovsdb_idl_remove_from_indexes(row);
     ovsdb_idl_row_unparse(row);
     ovsdb_idl_row_clear_arcs(row, true);
     changed = ovsdb_idl_row_apply_diff(row, diff_json,
                                        OVSDB_IDL_CHANGE_MODIFY);
     ovsdb_idl_row_parse(row);
+    ovsdb_idl_add_to_indexes(row);
 
     return changed;
 }
@@ -3486,9 +3508,18 @@ ovsdb_idl_txn_disassemble(struct ovsdb_idl_txn *txn)
     txn->db->txn = NULL;
 
     HMAP_FOR_EACH_SAFE (row, next, txn_node, &txn->txn_rows) {
+        enum { INSERTED, MODIFIED, DELETED } op
+            = (!row->new_datum ? DELETED
+               : !row->old_datum ? INSERTED
+               : MODIFIED);
+
+        if (op != DELETED) {
+            ovsdb_idl_remove_from_indexes(row);
+        }
+
         ovsdb_idl_destroy_all_map_op_lists(row);
         ovsdb_idl_destroy_all_set_op_lists(row);
-        if (row->old_datum) {
+        if (op != INSERTED) {
             if (row->written) {
                 ovsdb_idl_row_unparse(row);
                 ovsdb_idl_row_clear_arcs(row, false);
@@ -3507,7 +3538,9 @@ ovsdb_idl_txn_disassemble(struct ovsdb_idl_txn *txn)
 
         hmap_remove(&txn->txn_rows, &row->txn_node);
         hmap_node_nullify(&row->txn_node);
-        if (!row->old_datum) {
+        if (op != INSERTED) {
+            ovsdb_idl_add_to_indexes(row);
+        } else {
             hmap_remove(&row->table->rows, &row->hmap_node);
             free(row);
         }
@@ -3771,6 +3804,13 @@ ovsdb_idl_txn_commit(struct ovsdb_idl_txn *txn)
 
     if (txn != txn->db->txn) {
         goto coverage_out;
+    }
+
+    /* If we're still connecting or re-connecting, don't bother sending a
+     * transaction. */
+    if (txn->db->idl->state != IDL_S_MONITORING) {
+        txn->status = TXN_TRY_AGAIN;
+        goto disassemble_out;
     }
 
     /* If we need a lock but don't have it, give up quickly. */
@@ -4187,6 +4227,10 @@ ovsdb_idl_txn_write__(const struct ovsdb_idl_row *row_,
         goto discard_datum;
     }
 
+    bool index_row = is_index_row(row);
+    if (!index_row) {
+        ovsdb_idl_remove_from_indexes(row);
+    }
     if (hmap_node_is_null(&row->txn_node)) {
         hmap_insert(&row->table->db->txn->txn_rows, &row->txn_node,
                     uuid_hash(&row->uuid));
@@ -4209,6 +4253,9 @@ ovsdb_idl_txn_write__(const struct ovsdb_idl_row *row_,
     }
     (column->unparse)(row);
     (column->parse)(row, &row->new_datum[column_idx]);
+    if (!index_row) {
+        ovsdb_idl_add_to_indexes(row);
+    }
     return;
 
 discard_datum:
@@ -4336,6 +4383,8 @@ ovsdb_idl_txn_delete(const struct ovsdb_idl_row *row_)
     }
 
     ovs_assert(row->new_datum != NULL);
+    ovs_assert(!is_index_row(row_));
+    ovsdb_idl_remove_from_indexes(row_);
     if (!row->old_datum) {
         ovsdb_idl_row_unparse(row);
         ovsdb_idl_row_clear_new(row);
@@ -4383,6 +4432,7 @@ ovsdb_idl_txn_insert(struct ovsdb_idl_txn *txn,
     row->new_datum = xmalloc(class->n_columns * sizeof *row->new_datum);
     hmap_insert(&row->table->rows, &row->hmap_node, uuid_hash(&row->uuid));
     hmap_insert(&txn->txn_rows, &row->txn_node, uuid_hash(&row->uuid));
+    ovsdb_idl_add_to_indexes(row);
     return row;
 }
 
@@ -4573,6 +4623,10 @@ ovsdb_idl_db_txn_process_reply(struct ovsdb_idl_db *db,
                 if (error) {
                     if (error->type == JSON_STRING) {
                         if (!strcmp(error->string, "timed out")) {
+                            soft_errors++;
+                        } else if (!strcmp(error->string,
+                                           "unknown database")) {
+                            ovsdb_idl_retry(db->idl);
                             soft_errors++;
                         } else if (!strcmp(error->string, "not owner")) {
                             lock_errors++;

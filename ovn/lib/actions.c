@@ -78,7 +78,7 @@ ovnact_init(struct ovnact *ovnact, enum ovnact_type type, size_t len)
 
 static size_t
 encode_start_controller_op(enum action_opcode opcode, bool pause,
-                           struct ofpbuf *ofpacts)
+                           uint32_t meter_id, struct ofpbuf *ofpacts)
 {
     size_t ofs = ofpacts->size;
 
@@ -86,6 +86,7 @@ encode_start_controller_op(enum action_opcode opcode, bool pause,
     oc->max_len = UINT16_MAX;
     oc->reason = OFPR_ACTION;
     oc->pause = pause;
+    oc->meter_id = meter_id;
 
     struct action_header ah = { .opcode = htonl(opcode) };
     ofpbuf_put(ofpacts, &ah, sizeof ah);
@@ -105,7 +106,8 @@ encode_finish_controller_op(size_t ofs, struct ofpbuf *ofpacts)
 static void
 encode_controller_op(enum action_opcode opcode, struct ofpbuf *ofpacts)
 {
-    size_t ofs = encode_start_controller_op(opcode, false, ofpacts);
+    size_t ofs = encode_start_controller_op(opcode, false, NX_CTLR_NO_METER,
+                                            ofpacts);
     encode_finish_controller_op(ofs, ofpacts);
 }
 
@@ -183,12 +185,15 @@ first_ptable(const struct ovnact_encode_params *ep,
             : ep->egress_ptable);
 }
 
+#define MAX_NESTED_ACTION_DEPTH 32
+
 /* Context maintained during ovnacts_parse(). */
 struct action_context {
     const struct ovnact_parse_params *pp; /* Parameters. */
     struct lexer *lexer;        /* Lexer for pulling more tokens. */
     struct ofpbuf *ovnacts;     /* Actions. */
     struct expr *prereqs;       /* Prerequisites to apply to match. */
+    int depth;                  /* Current nested action depth. */
 };
 
 static void parse_actions(struct action_context *, enum lex_type sentinel);
@@ -1049,7 +1054,7 @@ encode_CT_LB(const struct ovnact_ct_lb *cl,
                       recirc_table, zone_reg);
     }
 
-    table_id = ovn_extend_table_assign_id(ep->group_table, &ds);
+    table_id = ovn_extend_table_assign_id(ep->group_table, ds_cstr(&ds));
     ds_destroy(&ds);
     if (table_id == EXT_TABLE_ID_INVALID) {
         return;
@@ -1090,6 +1095,11 @@ parse_nested_action(struct action_context *ctx, enum ovnact_type type,
         return;
     }
 
+    if (ctx->depth + 1 == MAX_NESTED_ACTION_DEPTH) {
+        lexer_error(ctx->lexer, "maximum depth of nested actions reached");
+        return;
+    }
+
     uint64_t stub[1024 / 8];
     struct ofpbuf nested = OFPBUF_STUB_INITIALIZER(stub);
 
@@ -1098,6 +1108,7 @@ parse_nested_action(struct action_context *ctx, enum ovnact_type type,
         .lexer = ctx->lexer,
         .ovnacts = &nested,
         .prereqs = NULL,
+        .depth = ctx->depth + 1,
     };
     parse_actions(&inner_ctx, LEX_T_RCURLY);
 
@@ -1245,7 +1256,8 @@ encode_nested_actions(const struct ovnact_nest *on,
      * converted to OpenFlow, as its userdata.  ovn-controller will convert the
      * packet to ARP or NA and then send the packet and actions back to the
      * switch inside an OFPT_PACKET_OUT message. */
-    size_t oc_offset = encode_start_controller_op(opcode, false, ofpacts);
+    size_t oc_offset = encode_start_controller_op(opcode, false,
+                                                  NX_CTLR_NO_METER, ofpacts);
     ofpacts_put_openflow_actions(inner_ofpacts.data, inner_ofpacts.size,
                                  ofpacts, OFP13_VERSION);
     encode_finish_controller_op(oc_offset, ofpacts);
@@ -1738,7 +1750,8 @@ encode_PUT_DHCPV4_OPTS(const struct ovnact_put_opts *pdo,
     struct mf_subfield dst = expr_resolve_field(&pdo->dst);
 
     size_t oc_offset = encode_start_controller_op(ACTION_OPCODE_PUT_DHCP_OPTS,
-                                                  true, ofpacts);
+                                                  true, NX_CTLR_NO_METER,
+                                                  ofpacts);
     nx_put_header(ofpacts, dst.field->id, OFP13_VERSION, false);
     ovs_be32 ofs = htonl(dst.ofs);
     ofpbuf_put(ofpacts, &ofs, sizeof ofs);
@@ -1769,7 +1782,7 @@ encode_PUT_DHCPV6_OPTS(const struct ovnact_put_opts *pdo,
     struct mf_subfield dst = expr_resolve_field(&pdo->dst);
 
     size_t oc_offset = encode_start_controller_op(
-        ACTION_OPCODE_PUT_DHCPV6_OPTS, true, ofpacts);
+        ACTION_OPCODE_PUT_DHCPV6_OPTS, true, NX_CTLR_NO_METER, ofpacts);
     nx_put_header(ofpacts, dst.field->id, OFP13_VERSION, false);
     ovs_be32 ofs = htonl(dst.ofs);
     ofpbuf_put(ofpacts, &ofs, sizeof ofs);
@@ -1864,7 +1877,8 @@ encode_DNS_LOOKUP(const struct ovnact_dns_lookup *dl,
     struct mf_subfield dst = expr_resolve_field(&dl->dst);
 
     size_t oc_offset = encode_start_controller_op(ACTION_OPCODE_DNS_LOOKUP,
-                                                  true, ofpacts);
+                                                  true, NX_CTLR_NO_METER,
+                                                  ofpacts);
     nx_put_header(ofpacts, dst.field->id, OFP13_VERSION, false);
     ovs_be32 ofs = htonl(dst.ofs);
     ofpbuf_put(ofpacts, &ofs, sizeof ofs);
@@ -1940,12 +1954,6 @@ parse_put_nd_ra_opts(struct action_context *ctx, const struct expr_field *dst,
         return;
     }
 
-    if (addr_mode_stateful && prefix_set) {
-        lexer_error(ctx->lexer, "prefix option can't be"
-                    " set when address mode is dhcpv6_stateful.");
-        return;
-    }
-
     if (!addr_mode_stateful && !prefix_set) {
         lexer_error(ctx->lexer, "prefix option needs "
                     "to be set when address mode is slaac/dhcpv6_stateless.");
@@ -1964,18 +1972,21 @@ format_PUT_ND_RA_OPTS(const struct ovnact_put_opts *po,
 
 static void
 encode_put_nd_ra_option(const struct ovnact_gen_option *o,
-                        struct ofpbuf *ofpacts, struct ovs_ra_msg *ra)
+                        struct ofpbuf *ofpacts, ptrdiff_t ra_offset)
 {
     const union expr_constant *c = o->value.values;
 
     switch (o->option->code) {
     case ND_RA_FLAG_ADDR_MODE:
+    {
+        struct ovs_ra_msg *ra = ofpbuf_at(ofpacts, ra_offset, sizeof *ra);
         if (!strcmp(c->string, "dhcpv6_stateful")) {
             ra->mo_flags = IPV6_ND_RA_FLAG_MANAGED_ADDR_CONFIG;
         } else if (!strcmp(c->string, "dhcpv6_stateless")) {
             ra->mo_flags = IPV6_ND_RA_FLAG_OTHER_ADDR_CONFIG;
         }
         break;
+    }
 
     case ND_OPT_SOURCE_LINKADDR:
     {
@@ -2003,10 +2014,14 @@ encode_put_nd_ra_option(const struct ovnact_gen_option *o,
         struct ovs_nd_prefix_opt *prefix_opt =
             ofpbuf_put_uninit(ofpacts, sizeof *prefix_opt);
         uint8_t prefix_len = ipv6_count_cidr_bits(&c->mask.ipv6);
+        struct ovs_ra_msg *ra = ofpbuf_at(ofpacts, ra_offset, sizeof *ra);
         prefix_opt->type = ND_OPT_PREFIX_INFORMATION;
         prefix_opt->len = 4;
         prefix_opt->prefix_len = prefix_len;
-        prefix_opt->la_flags = IPV6_ND_RA_OPT_PREFIX_FLAGS;
+        prefix_opt->la_flags = IPV6_ND_RA_OPT_PREFIX_ON_LINK;
+        if (!(ra->mo_flags & IPV6_ND_RA_FLAG_MANAGED_ADDR_CONFIG)) {
+            prefix_opt->la_flags |= IPV6_ND_RA_OPT_PREFIX_AUTONOMOUS;
+        }
         put_16aligned_be32(&prefix_opt->valid_lifetime,
                            htonl(IPV6_ND_RA_OPT_PREFIX_VALID_LIFETIME));
         put_16aligned_be32(&prefix_opt->preferred_lifetime,
@@ -2027,7 +2042,7 @@ encode_PUT_ND_RA_OPTS(const struct ovnact_put_opts *po,
     struct mf_subfield dst = expr_resolve_field(&po->dst);
 
     size_t oc_offset = encode_start_controller_op(
-        ACTION_OPCODE_PUT_ND_RA_OPTS, true, ofpacts);
+        ACTION_OPCODE_PUT_ND_RA_OPTS, true, NX_CTLR_NO_METER, ofpacts);
     nx_put_header(ofpacts, dst.field->id, OFP13_VERSION, false);
     ovs_be32 ofs = htonl(dst.ofs);
     ofpbuf_put(ofpacts, &ofs, sizeof ofs);
@@ -2037,6 +2052,7 @@ encode_PUT_ND_RA_OPTS(const struct ovnact_put_opts *po,
      * pinctrl module receives the ICMPv6 Router Solicitation packet
      * it can copy the userdata field AS IS and resume the packet.
      */
+    size_t ra_offset = ofpacts->size;
     struct ovs_ra_msg *ra = ofpbuf_put_zeros(ofpacts, sizeof *ra);
     ra->icmph.icmp6_type = ND_ROUTER_ADVERT;
     ra->cur_hop_limit = IPV6_ND_RA_CUR_HOP_LIMIT;
@@ -2045,7 +2061,7 @@ encode_PUT_ND_RA_OPTS(const struct ovnact_put_opts *po,
 
     for (const struct ovnact_gen_option *o = po->options;
          o < &po->options[po->n_options]; o++) {
-        encode_put_nd_ra_option(o, ofpacts, ra);
+        encode_put_nd_ra_option(o, ofpacts, ra_offset);
     }
 
     encode_finish_controller_op(oc_offset, ofpacts);
@@ -2066,7 +2082,8 @@ parse_log_arg(struct action_context *ctx, struct ovnact_log *log)
         } else if (lexer_match_id(ctx->lexer, "allow")) {
             log->verdict = LOG_VERDICT_ALLOW;
         } else {
-            lexer_syntax_error(ctx->lexer, "unknown acl verdict");
+            lexer_syntax_error(ctx->lexer, "unknown verdict");
+            return;
         }
     } else if (lexer_match_id(ctx->lexer, "name")) {
         if (!lexer_force_match(ctx->lexer, LEX_T_EQUALS)) {
@@ -2098,9 +2115,25 @@ parse_log_arg(struct action_context *ctx, struct ovnact_log *log)
                 log->severity = severity;
                 lexer_get(ctx->lexer);
                 return;
+            } else {
+                lexer_syntax_error(ctx->lexer, "unknown severity");
+                return;
             }
         }
         lexer_syntax_error(ctx->lexer, "expecting severity");
+    } else if (lexer_match_id(ctx->lexer, "meter")) {
+        if (!lexer_force_match(ctx->lexer, LEX_T_EQUALS)) {
+            return;
+        }
+        /* If multiple meters are given, use the most recent. */
+        if (ctx->lexer->token.type == LEX_T_STRING) {
+            free(log->meter);
+            log->meter = xstrdup(ctx->lexer->token.s);
+        } else {
+            lexer_syntax_error(ctx->lexer, "expecting string");
+            return;
+        }
+        lexer_get(ctx->lexer);
     } else {
         lexer_syntax_error(ctx->lexer, NULL);
     }
@@ -2124,6 +2157,9 @@ parse_LOG(struct action_context *ctx)
             lexer_match(ctx->lexer, LEX_T_COMMA);
         }
     }
+    if (log->verdict == LOG_VERDICT_UNKNOWN) {
+        lexer_syntax_error(ctx->lexer, "expecting verdict");
+    }
 }
 
 static void
@@ -2136,16 +2172,31 @@ format_LOG(const struct ovnact_log *log, struct ds *s)
     }
 
     ds_put_format(s, "verdict=%s, ", log_verdict_to_string(log->verdict));
-    ds_put_format(s, "severity=%s);", log_severity_to_string(log->severity));
+    ds_put_format(s, "severity=%s", log_severity_to_string(log->severity));
+
+    if (log->meter) {
+        ds_put_format(s, ", meter=\"%s\"", log->meter);
+    }
+
+    ds_put_cstr(s, ");");
 }
 
 static void
 encode_LOG(const struct ovnact_log *log,
-           const struct ovnact_encode_params *ep OVS_UNUSED,
-           struct ofpbuf *ofpacts)
+           const struct ovnact_encode_params *ep, struct ofpbuf *ofpacts)
 {
+    uint32_t meter_id = NX_CTLR_NO_METER;
+
+    if (log->meter) {
+        meter_id = ovn_extend_table_assign_id(ep->meter_table, log->meter);
+        if (meter_id == EXT_TABLE_ID_INVALID) {
+            VLOG_WARN("Unable to assign id for log meter: %s", log->meter);
+            return;
+        }
+    }
+
     size_t oc_offset = encode_start_controller_op(ACTION_OPCODE_LOG, false,
-                                                  ofpacts);
+                                                  meter_id, ofpacts);
 
     struct log_pin_header *lph = ofpbuf_put_uninit(ofpacts, sizeof *lph);
     lph->verdict = log->verdict;
@@ -2163,6 +2214,7 @@ static void
 ovnact_log_free(struct ovnact_log *log)
 {
     free(log->name);
+    free(log->meter);
 }
 
 static void
@@ -2217,24 +2269,23 @@ encode_SET_METER(const struct ovnact_set_meter *cl,
     uint32_t table_id;
     struct ofpact_meter *om;
 
-    struct ds ds = DS_EMPTY_INITIALIZER;
+    /* Use the special "__string:" prefix to indicate that the name
+     * describes the meter itself. */
+    char *name;
     if (cl->burst) {
-        ds_put_format(&ds,
-                      "kbps burst stats bands=type=drop rate=%"PRId64" "
-                      "burst_size=%"PRId64"",
-                      cl->rate, cl->burst);
+        name = xasprintf("__string: kbps burst stats bands=type=drop "
+                         "rate=%"PRId64" burst_size=%"PRId64"", cl->rate,
+                         cl->burst);
     } else {
-        ds_put_format(&ds, "kbps stats bands=type=drop rate=%"PRId64"",
-                      cl->rate);
+        name = xasprintf("__string: kbps stats bands=type=drop "
+                         "rate=%"PRId64"", cl->rate);
     }
 
-    table_id = ovn_extend_table_assign_id(ep->meter_table, &ds);
+    table_id = ovn_extend_table_assign_id(ep->meter_table, name);
+    free(name);
     if (table_id == EXT_TABLE_ID_INVALID) {
-        ds_destroy(&ds);
         return;
     }
-
-    ds_destroy(&ds);
 
     /* Create an action to set the meter. */
     om = ofpact_put_METER(ofpacts);

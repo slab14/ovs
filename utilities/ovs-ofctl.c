@@ -477,10 +477,8 @@ usage(void)
            "  queue-get-config SWITCH [PORT]  print queue config for PORT\n"
            "  add-meter SWITCH METER      add meter described by METER\n"
            "  mod-meter SWITCH METER      modify specific METER\n"
-           "  del-meter SWITCH METER      delete METER\n"
-           "  del-meters SWITCH           delete all meters\n"
-           "  dump-meter SWITCH METER     print METER configuration\n"
-           "  dump-meters SWITCH          print all meter configuration\n"
+           "  del-meters SWITCH [METER]   delete meters matching METER\n"
+           "  dump-meters SWITCH [METER]  print METER configuration\n"
            "  meter-stats SWITCH [METER]  print meter statistics\n"
            "  meter-features SWITCH       print meter features\n"
            "  add-tlv-map SWITCH MAP      add TLV option MAPpings\n"
@@ -1545,7 +1543,7 @@ compare_flows(const void *afs_, const void *bfs_)
         }
     }
 
-    return 0;
+    return a < b ? -1 : 1;
 }
 
 static void
@@ -1567,7 +1565,9 @@ ofctl_dump_flows(struct ovs_cmdl_context *ctx)
         run(vconn_dump_flows(vconn, &fsr, protocol, &fses, &n_fses),
             "dump flows");
 
-        qsort(fses, n_fses, sizeof *fses, compare_flows);
+        if (n_criteria) {
+            qsort(fses, n_fses, sizeof *fses, compare_flows);
+        }
 
         struct ds s = DS_EMPTY_INITIALIZER;
         for (size_t i = 0; i < n_fses; i++) {
@@ -2783,7 +2783,8 @@ ofctl_ofp_parse_pcap(struct ovs_cmdl_context *ctx)
 
                     oh = dp_packet_data(payload);
                     length = ntohs(oh->length);
-                    if (dp_packet_size(payload) < length) {
+                    if (dp_packet_size(payload) < length
+                        || length < sizeof *oh) {
                         break;
                     }
 
@@ -2957,7 +2958,8 @@ bundle_group_mod__(const char *remote, struct ofputil_group_mod *gms,
 
     for (i = 0; i < n_gms; i++) {
         struct ofputil_group_mod *gm = &gms[i];
-        struct ofpbuf *request = ofputil_encode_group_mod(version, gm);
+        struct ofpbuf *request = ofputil_encode_group_mod(version, gm,
+                                                          NULL, -1);
 
         ovs_list_push_back(&requests, &request->list_node);
         ofputil_uninit_group_mod(gm);
@@ -2990,7 +2992,7 @@ ofctl_group_mod__(const char *remote, struct ofputil_group_mod *gms,
 
     for (i = 0; i < n_gms; i++) {
         gm = &gms[i];
-        request = ofputil_encode_group_mod(version, gm);
+        request = ofputil_encode_group_mod(version, gm, NULL, -1);
         transact_noreply(vconn, request);
         ofputil_uninit_group_mod(gm);
     }
@@ -4473,6 +4475,7 @@ ofctl_parse_pcap(struct ovs_cmdl_context *ctx)
             } else if (retval) {
                 error = retval;
                 ovs_error(error, "%s: read failed", filename);
+                break;
             }
 
             pkt_metadata_init(&packet->md, u32_to_odp(ofp_to_u16(OFPP_ANY)));
@@ -4804,6 +4807,24 @@ ofctl_compose_packet(struct ovs_cmdl_context *ctx)
     }
 }
 
+/* "parse-packet" reads an Ethernet packet from stdin and prints it out its
+ * extracted flow fields. */
+static void
+ofctl_parse_packet(struct ovs_cmdl_context *ctx OVS_UNUSED)
+{
+    char packet[65535];
+    ssize_t size = read(STDIN_FILENO, packet, sizeof packet);
+    if (size < 0) {
+        ovs_fatal(errno, "failed to read packet from stdin");
+    }
+
+    /* Make a copy of the packet in allocated memory to better allow Valgrind
+     * and Address Sanitizer to catch out-of-range access. */
+    void *packet_copy = xmemdup(packet, size);
+    ofp_print_packet(stdout, packet_copy, size, 0);
+    free(packet_copy);
+}
+
 static const struct ovs_cmdl_command all_commands[] = {
     { "show", "switch",
       1, 1, ofctl_show, OVS_RO },
@@ -4844,13 +4865,13 @@ static const struct ovs_cmdl_command all_commands[] = {
     { "mod-meter", "switch meter",
       2, 2, ofctl_mod_meter, OVS_RW },
     { "del-meter", "switch meter",
-      2, 2, ofctl_del_meters, OVS_RW },
+      1, 2, ofctl_del_meters, OVS_RW },
     { "del-meters", "switch",
-      1, 1, ofctl_del_meters, OVS_RW },
+      1, 2, ofctl_del_meters, OVS_RW },
     { "dump-meter", "switch meter",
-      2, 2, ofctl_dump_meters, OVS_RO },
+      1, 2, ofctl_dump_meters, OVS_RO },
     { "dump-meters", "switch",
-      1, 1, ofctl_dump_meters, OVS_RO },
+      1, 2, ofctl_dump_meters, OVS_RO },
     { "meter-stats", "switch [meter]",
       1, 2, ofctl_meter_stats, OVS_RO },
     { "meter-features", "switch",
@@ -4938,6 +4959,7 @@ static const struct ovs_cmdl_command all_commands[] = {
     { "encode-hello", NULL, 1, 1, ofctl_encode_hello, OVS_RW },
     { "parse-key-value", NULL, 1, INT_MAX, ofctl_parse_key_value, OVS_RW },
     { "compose-packet", NULL, 1, 2, ofctl_compose_packet, OVS_RO },
+    { "parse-packet", NULL, 0, 0, ofctl_parse_packet, OVS_RO },
 
     { NULL, NULL, 0, 0, NULL, OVS_RO },
 };

@@ -191,8 +191,15 @@ class Stream(object):
         if error:
             return error, None
         else:
-            status = ovs.socket_util.check_connection_completion(sock)
-            return 0, cls(sock, name, status)
+            err = ovs.socket_util.check_connection_completion(sock)
+            if err == errno.EAGAIN or err == errno.EINPROGRESS:
+                status = errno.EAGAIN
+                err = 0
+            elif err == 0:
+                status = 0
+            else:
+                status = err
+            return err, cls(sock, name, status)
 
     @staticmethod
     def _open(suffix, dscp):
@@ -702,8 +709,8 @@ def usage(name):
     return """
 Active %s connection methods:
   unix:FILE               Unix domain socket named FILE
-  tcp:IP:PORT             TCP socket to IP with port no of PORT
-  ssl:IP:PORT             SSL socket to IP with port no of PORT
+  tcp:HOST:PORT           TCP socket to HOST with port no of PORT
+  ssl:HOST:PORT           SSL socket to HOST with port no of PORT
 
 Passive %s connection methods:
   punix:FILE              Listen on Unix domain socket FILE""" % (name, name)
@@ -734,7 +741,11 @@ class TCPStream(Stream):
         error, sock = ovs.socket_util.inet_open_active(socket.SOCK_STREAM,
                                                        suffix, 0, dscp)
         if not error:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            try:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except socket.error as e:
+                sock.close()
+                return ovs.socket_util.get_exception_errno(e), None
         return error, sock
 
 

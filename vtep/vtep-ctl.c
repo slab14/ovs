@@ -111,8 +111,11 @@ main(int argc, char *argv[])
     char *args = process_escape_args(argv);
     shash_init(&local_options);
     parse_options(argc, argv, &local_options);
-    commands = ctl_parse_commands(argc - optind, argv + optind, &local_options,
-                                  &n_commands);
+    char *error = ctl_parse_commands(argc - optind, argv + optind,
+                                     &local_options, &commands, &n_commands);
+    if (error) {
+        ctl_fatal("%s", error);
+    }
     VLOG(ctl_might_write_to_db(commands, n_commands) ? VLL_INFO : VLL_DBG,
          "Called as %s", args);
 
@@ -2261,6 +2264,9 @@ run_prerequisites(struct ctl_command *commands, size_t n_commands,
 
             vtep_ctl_context_init(&vtepctl_ctx, c, idl, NULL, NULL, NULL);
             (c->syntax->prerequisites)(&vtepctl_ctx.base);
+            if (vtepctl_ctx.base.error) {
+                ctl_fatal("%s", vtepctl_ctx.base.error);
+            }
             vtep_ctl_context_done(&vtepctl_ctx, c);
 
             ovs_assert(!c->output.string);
@@ -2306,6 +2312,9 @@ do_vtep_ctl(const char *args, struct ctl_command *commands,
         if (c->syntax->run) {
             (c->syntax->run)(&vtepctl_ctx.base);
         }
+        if (vtepctl_ctx.base.error) {
+            ctl_fatal("%s", vtepctl_ctx.base.error);
+        }
         vtep_ctl_context_done_command(&vtepctl_ctx, c);
 
         if (vtepctl_ctx.base.try_again) {
@@ -2341,6 +2350,9 @@ do_vtep_ctl(const char *args, struct ctl_command *commands,
             if (c->syntax->postprocess) {
                 vtep_ctl_context_init(&vtepctl_ctx, c, idl, txn, vtep_global, symtab);
                 (c->syntax->postprocess)(&vtepctl_ctx.base);
+                if (vtepctl_ctx.base.error) {
+                    ctl_fatal("%s", vtepctl_ctx.base.error);
+                }
                 vtep_ctl_context_done(&vtepctl_ctx, c);
             }
         }

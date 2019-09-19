@@ -1,11 +1,16 @@
 # -*- shell-script -*-
 HAVE_OPENSSL='@HAVE_OPENSSL@'
 HAVE_PYTHON='@HAVE_PYTHON@'
+HAVE_PYTHON2='@HAVE_PYTHON2@'
 HAVE_PYTHON3='@HAVE_PYTHON3@'
 EGREP='@EGREP@'
 
 if test x"$PYTHON" = x; then
     PYTHON='@PYTHON@'
+fi
+
+if test x"$PYTHON2" = x; then
+    PYTHON2='@PYTHON2@'
 fi
 
 if test x"$PYTHON3" = x; then
@@ -184,6 +189,9 @@ fi
 
 # Set HAVE_TCPDUMP
 find_command tcpdump
+
+# Set HAVE_LFTP
+find_command lftp
 
 CURL_OPT="-g -v --max-time 1 --retry 2 --retry-delay 1 --connect-timeout 1"
 

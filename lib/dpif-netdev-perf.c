@@ -206,6 +206,7 @@ pmd_perf_format_overall_stats(struct ds *str, struct pmd_perf_stats *s,
             "  Rx packets:      %12"PRIu64"  (%.0f Kpps, %.0f cycles/pkt)\n"
             "  Datapath passes: %12"PRIu64"  (%.2f passes/pkt)\n"
             "  - EMC hits:      %12"PRIu64"  (%4.1f %%)\n"
+            "  - SMC hits:      %12"PRIu64"  (%4.1f %%)\n"
             "  - Megaflow hits: %12"PRIu64"  (%4.1f %%, %.2f subtbl lookups/"
                                                                      "hit)\n"
             "  - Upcalls:       %12"PRIu64"  (%4.1f %%, %.1f us/upcall)\n"
@@ -215,6 +216,8 @@ pmd_perf_format_overall_stats(struct ds *str, struct pmd_perf_stats *s,
             passes, rx_packets ? 1.0 * passes / rx_packets : 0,
             stats[PMD_STAT_EXACT_HIT],
             100.0 * stats[PMD_STAT_EXACT_HIT] / passes,
+            stats[PMD_STAT_SMC_HIT],
+            100.0 * stats[PMD_STAT_SMC_HIT] / passes,
             stats[PMD_STAT_MASKED_HIT],
             100.0 * stats[PMD_STAT_MASKED_HIT] / passes,
             stats[PMD_STAT_MASKED_HIT]
@@ -495,15 +498,7 @@ pmd_perf_end_iteration(struct pmd_perf_stats *s, int rx_packets,
         cycles_per_pkt = cycles / rx_packets;
         histogram_add_sample(&s->cycles_per_pkt, cycles_per_pkt);
     }
-    if (s->current.batches > 0) {
-        histogram_add_sample(&s->pkts_per_batch,
-                             rx_packets / s->current.batches);
-    }
     histogram_add_sample(&s->upcalls, s->current.upcalls);
-    if (s->current.upcalls > 0) {
-        histogram_add_sample(&s->cycles_per_upcall,
-                             s->current.upcall_cycles / s->current.upcalls);
-    }
     histogram_add_sample(&s->max_vhost_qfill, s->current.max_vhost_qfill);
 
     /* Add iteration samples to millisecond stats. */
@@ -559,8 +554,8 @@ pmd_perf_end_iteration(struct pmd_perf_stats *s, int rx_packets,
             cum_ms = history_next(&s->milliseconds);
             cum_ms->timestamp = now;
         }
-        /* Do the next check after 10K cycles (4 us at 2.5 GHz TSC clock). */
-        s->next_check_tsc = cycles_counter_update(s) + 10000;
+        /* Do the next check after 4 us (10K cycles at 2.5 GHz TSC clock). */
+        s->next_check_tsc = cycles_counter_update(s) + get_tsc_hz() / 250000;
     }
 }
 

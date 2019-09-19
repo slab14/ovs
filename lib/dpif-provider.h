@@ -191,16 +191,7 @@ struct dpif_class {
 
     /* Returns the Netlink PID value to supply in OVS_ACTION_ATTR_USERSPACE
      * actions as the OVS_USERSPACE_ATTR_PID attribute's value, for use in
-     * flows whose packets arrived on port 'port_no'.  In the case where the
-     * provider allocates multiple Netlink PIDs to a single port, it may use
-     * 'hash' to spread load among them.  The caller need not use a particular
-     * hash function; a 5-tuple hash is suitable.
-     *
-     * (The datapath implementation might use some different hash function for
-     * distributing packets received via flow misses among PIDs.  This means
-     * that packets received via flow misses might be reordered relative to
-     * packets received via userspace actions.  This is not ordinarily a
-     * problem.)
+     * flows whose packets arrived on port 'port_no'.
      *
      * A 'port_no' of UINT32_MAX should be treated as a special case.  The
      * implementation should return a reserved PID, not allocated to any port,
@@ -212,8 +203,7 @@ struct dpif_class {
      *
      * A dpif provider that doesn't have meaningful Netlink PIDs can use NULL
      * for this function.  This is equivalent to always returning 0. */
-    uint32_t (*port_get_pid)(const struct dpif *dpif, odp_port_t port_no,
-                             uint32_t hash);
+    uint32_t (*port_get_pid)(const struct dpif *dpif, odp_port_t port_no);
 
     /* Attempts to begin dumping the ports in a dpif.  On success, returns 0
      * and initializes '*statep' with any data needed for iteration.  On
@@ -444,6 +434,35 @@ struct dpif_class {
     /* Get number of connections tracked. */
     int (*ct_get_nconns)(struct dpif *, uint32_t *nconns);
 
+    /* Connection tracking per zone limit */
+
+    /* Per zone conntrack limit sets the maximum allowed connections in zones
+     * to provide resource isolation.  If a per zone limit for a particular
+     * zone is not available in the datapath, it defaults to the default
+     * per zone limit.  Initially, the default per zone limit is
+     * unlimited (0). */
+
+    /* Sets the max connections allowed per zone according to 'zone_limits',
+     * a list of 'struct ct_dpif_zone_limit' entries (the 'count' member
+     * is not used when setting limits).  If 'default_limit' is not NULL,
+     * modifies the default limit to '*default_limit'. */
+    int (*ct_set_limits)(struct dpif *, const uint32_t *default_limit,
+                         const struct ovs_list *zone_limits);
+
+    /* Looks up the default per zone limit and stores that in
+     * 'default_limit'.  Look up the per zone limits for all zones in
+     * the 'zone_limits_in' list of 'struct ct_dpif_zone_limit' entries
+     * (the 'limit' and 'count' members are not used), and stores the
+     * reply that includes the zone, the per zone limit, and the number
+     * of connections in the zone into 'zone_limits_out' list. */
+    int (*ct_get_limits)(struct dpif *, uint32_t *default_limit,
+                         const struct ovs_list *zone_limits_in,
+                         struct ovs_list *zone_limits_out);
+
+    /* Deletes per zone limit of all zones specified in 'zone_limits', a
+     * list of 'struct ct_dpif_zone_limit' entries. */
+    int (*ct_del_limits)(struct dpif *, const struct ovs_list *zone_limits);
+
     /* Meters */
 
     /* Queries 'dpif' for supported meter features.
@@ -451,12 +470,11 @@ struct dpif_class {
     void (*meter_get_features)(const struct dpif *,
                                struct ofputil_meter_features *);
 
-    /* Adds or modifies 'meter' in 'dpif'.   If '*meter_id' is UINT32_MAX,
-     * adds a new meter, otherwise modifies an existing meter.
+    /* Adds or modifies the meter in 'dpif' with the given 'meter_id'
+     * and the configuration in 'config'.
      *
-     * If meter is successfully added, sets '*meter_id' to the new meter's
-     * meter id selected by 'dpif'. */
-    int (*meter_set)(struct dpif *, ofproto_meter_id *meter_id,
+     * The meter id specified through 'config->meter_id' is ignored. */
+    int (*meter_set)(struct dpif *, ofproto_meter_id meter_id,
                      struct ofputil_meter_config *);
 
     /* Queries 'dpif' for meter stats with the given 'meter_id'.  Stores

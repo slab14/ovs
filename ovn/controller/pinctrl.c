@@ -70,7 +70,7 @@ static void run_put_mac_bindings(
     struct ovsdb_idl_txn *ovnsb_idl_txn,
     struct ovsdb_idl_index *sbrec_datapath_binding_by_key,
     struct ovsdb_idl_index *sbrec_port_binding_by_key,
-    const struct sbrec_mac_binding_table *);
+    struct ovsdb_idl_index *sbrec_mac_binding_by_lport_ip);
 static void wait_put_mac_bindings(struct ovsdb_idl_txn *ovnsb_idl_txn);
 static void flush_put_mac_bindings(void);
 
@@ -432,7 +432,7 @@ pinctrl_handle_put_dhcp_opts(
     if (dp_packet_l4_size(pkt_in) < (UDP_HEADER_LEN +
         sizeof (struct dhcp_header) + sizeof(uint32_t) + 3)) {
         static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
-        VLOG_WARN_RL(&rl, "Invalid or incomplete DHCP packet recieved");
+        VLOG_WARN_RL(&rl, "Invalid or incomplete DHCP packet received");
         goto exit;
     }
 
@@ -609,6 +609,11 @@ compose_out_dhcpv6_opts(struct ofpbuf *userdata,
                 return false;
             }
 
+            if (!iaid) {
+                /* If iaid is None, it means its an DHCPv6 information request.
+                 * Don't put IA_NA option in the response. */
+                 break;
+            }
             /* IA Address option is used to specify IPv6 addresses associated
              * with an IA_NA or IA_TA. The IA Address option must be
              * encapsulated in the Options field of an IA_NA or IA_TA option.
@@ -717,7 +722,8 @@ pinctrl_handle_put_dhcpv6_opts(
     }
 
     uint8_t out_dhcpv6_msg_type;
-    switch(*in_dhcpv6_data) {
+    uint8_t in_dhcpv6_msg_type = *in_dhcpv6_data;
+    switch (in_dhcpv6_msg_type) {
     case DHCPV6_MSG_TYPE_SOLICIT:
         out_dhcpv6_msg_type = DHCPV6_MSG_TYPE_ADVT;
         break;
@@ -725,6 +731,7 @@ pinctrl_handle_put_dhcpv6_opts(
     case DHCPV6_MSG_TYPE_REQUEST:
     case DHCPV6_MSG_TYPE_CONFIRM:
     case DHCPV6_MSG_TYPE_DECLINE:
+    case DHCPV6_MSG_TYPE_INFO_REQ:
         out_dhcpv6_msg_type = DHCPV6_MSG_TYPE_REPLY;
         break;
 
@@ -737,7 +744,10 @@ pinctrl_handle_put_dhcpv6_opts(
     in_dhcpv6_data += 4;
     /* We need to extract IAID from the IA-NA option of the client's DHCPv6
      * solicit/request/confirm packet and copy the same IAID in the Server's
-     * response. */
+     * response.
+     * DHCPv6 information packet (for stateless request will not have IA-NA
+     * option. So we don't need to copy that in the Server's response.
+     * */
     ovs_be32 iaid = 0;
     struct dhcpv6_opt_header const *in_opt_client_id = NULL;
     size_t udp_len = ntohs(in_udp->udp_len);
@@ -771,7 +781,7 @@ pinctrl_handle_put_dhcpv6_opts(
         goto exit;
     }
 
-    if (!iaid) {
+    if (!iaid && in_dhcpv6_msg_type != DHCPV6_MSG_TYPE_INFO_REQ) {
         VLOG_WARN_RL(&rl, "DHCPv6 option - IA NA not present in the "
                      " DHCPv6 packet");
         goto exit;
@@ -898,6 +908,12 @@ pinctrl_handle_dns_lookup(
         goto exit;
     }
 
+    /* Check that the packet stores at least the minimal headers. */
+    if (dp_packet_l4_size(pkt_in) < (UDP_HEADER_LEN + DNS_HEADER_LEN)) {
+        VLOG_WARN_RL(&rl, "truncated dns packet");
+        goto exit;
+    }
+
     /* Extract the DNS header */
     struct dns_header const *in_dns_header = dp_packet_get_udp_payload(pkt_in);
     if (!in_dns_header) {
@@ -922,7 +938,7 @@ pinctrl_handle_dns_lookup(
     uint8_t *end = (uint8_t *)in_udp + MIN(udp_len, l4_len);
     uint8_t *in_dns_data = (uint8_t *)(in_dns_header + 1);
     uint8_t *in_queryname = in_dns_data;
-    uint8_t idx = 0;
+    uint16_t idx = 0;
     struct ds query_name;
     ds_init(&query_name);
     /* Extract the query_name. If the query name is - 'www.ovn.org' it would be
@@ -1251,8 +1267,8 @@ pinctrl_run(struct ovsdb_idl_txn *ovnsb_idl_txn,
             struct ovsdb_idl_index *sbrec_port_binding_by_datapath,
             struct ovsdb_idl_index *sbrec_port_binding_by_key,
             struct ovsdb_idl_index *sbrec_port_binding_by_name,
+            struct ovsdb_idl_index *sbrec_mac_binding_by_lport_ip,
             const struct sbrec_dns_table *dns_table,
-            const struct sbrec_mac_binding_table *mac_binding_table,
             const struct ovsrec_bridge *br_int,
             const struct sbrec_chassis *chassis,
             const struct hmap *local_datapaths,
@@ -1293,7 +1309,8 @@ pinctrl_run(struct ovsdb_idl_txn *ovnsb_idl_txn,
     }
 
     run_put_mac_bindings(ovnsb_idl_txn, sbrec_datapath_binding_by_key,
-                         sbrec_port_binding_by_key, mac_binding_table);
+                         sbrec_port_binding_by_key,
+                         sbrec_mac_binding_by_lport_ip);
     send_garp_run(sbrec_chassis_by_name, sbrec_port_binding_by_datapath,
                   sbrec_port_binding_by_name, br_int, chassis,
                   local_datapaths, active_tunnels);
@@ -1377,7 +1394,7 @@ ipv6_ra_update_config(const struct sbrec_port_binding *pb)
     config->min_interval = smap_get_int(&pb->options, "ipv6_ra_min_interval",
             nd_ra_min_interval_default(config->max_interval));
     config->mtu = smap_get_int(&pb->options, "ipv6_ra_mtu", ND_MTU_DEFAULT);
-    config->la_flags = ND_PREFIX_ON_LINK;
+    config->la_flags = IPV6_ND_RA_OPT_PREFIX_ON_LINK;
 
     const char *address_mode = smap_get(&pb->options, "ipv6_ra_address_mode");
     if (!address_mode) {
@@ -1386,10 +1403,11 @@ ipv6_ra_update_config(const struct sbrec_port_binding *pb)
     }
     if (!strcmp(address_mode, "dhcpv6_stateless")) {
         config->mo_flags = IPV6_ND_RA_FLAG_OTHER_ADDR_CONFIG;
+        config->la_flags |= IPV6_ND_RA_OPT_PREFIX_AUTONOMOUS;
     } else if (!strcmp(address_mode, "dhcpv6_stateful")) {
         config->mo_flags = IPV6_ND_RA_FLAG_MANAGED_ADDR_CONFIG;
     } else if (!strcmp(address_mode, "slaac")) {
-        config->la_flags |= ND_PREFIX_AUTONOMOUS_ADDRESS;
+        config->la_flags |= IPV6_ND_RA_OPT_PREFIX_AUTONOMOUS;
     } else {
         VLOG_WARN("Invalid address mode %s", address_mode);
         goto fail;
@@ -1562,6 +1580,11 @@ send_ipv6_ras(struct ovsdb_idl_index *sbrec_port_binding_by_datapath,
                     ra->config->max_interval);
                 shash_add(&ipv6_ras, pb->logical_port, ra);
             } else {
+                if (config->min_interval != ra->config->min_interval ||
+                    config->max_interval != ra->config->max_interval)
+                    ra->next_announce = ipv6_ra_calc_next_announce(
+                        config->min_interval,
+                        config->max_interval);
                 ipv6_ra_config_delete(ra->config);
                 ra->config = config;
             }
@@ -1702,11 +1725,30 @@ pinctrl_handle_put_mac_binding(const struct flow *md,
     pmb->mac = headers->dl_src;
 }
 
+static const struct sbrec_mac_binding *
+mac_binding_lookup(struct ovsdb_idl_index *sbrec_mac_binding_by_lport_ip,
+                   const char *logical_port,
+                   const char *ip)
+{
+    struct sbrec_mac_binding *mb = sbrec_mac_binding_index_init_row(
+        sbrec_mac_binding_by_lport_ip);
+    sbrec_mac_binding_index_set_logical_port(mb, logical_port);
+    sbrec_mac_binding_index_set_ip(mb, ip);
+
+    const struct sbrec_mac_binding *retval
+        = sbrec_mac_binding_index_find(sbrec_mac_binding_by_lport_ip,
+                                       mb);
+
+    sbrec_mac_binding_index_destroy_row(mb);
+
+    return retval;
+}
+
 static void
 run_put_mac_binding(struct ovsdb_idl_txn *ovnsb_idl_txn,
                     struct ovsdb_idl_index *sbrec_datapath_binding_by_key,
                     struct ovsdb_idl_index *sbrec_port_binding_by_key,
-                    const struct sbrec_mac_binding_table *mac_binding_table,
+                    struct ovsdb_idl_index *sbrec_mac_binding_by_lport_ip,
                     const struct put_mac_binding *pmb)
 {
     if (time_msec() > pmb->timestamp + 1000) {
@@ -1730,19 +1772,17 @@ run_put_mac_binding(struct ovsdb_idl_txn *ovnsb_idl_txn,
     snprintf(mac_string, sizeof mac_string,
              ETH_ADDR_FMT, ETH_ADDR_ARGS(pmb->mac));
 
-    /* Check for an update an existing IP-MAC binding for this logical
+    /* Check for and update an existing IP-MAC binding for this logical
      * port.
-     *
-     * XXX This is not very efficient. */
-    const struct sbrec_mac_binding *b;
-    SBREC_MAC_BINDING_TABLE_FOR_EACH (b, mac_binding_table) {
-        if (!strcmp(b->logical_port, pb->logical_port)
-            && !strcmp(b->ip, pmb->ip_s)) {
-            if (strcmp(b->mac, mac_string)) {
-                sbrec_mac_binding_set_mac(b, mac_string);
-            }
-            return;
+     */
+    const struct sbrec_mac_binding *b =
+        mac_binding_lookup(sbrec_mac_binding_by_lport_ip, pb->logical_port,
+                           pmb->ip_s);
+    if (b) {
+        if (strcmp(b->mac, mac_string)) {
+            sbrec_mac_binding_set_mac(b, mac_string);
         }
+        return;
     }
 
     /* Add new IP-MAC binding for this logical port. */
@@ -1757,7 +1797,7 @@ static void
 run_put_mac_bindings(struct ovsdb_idl_txn *ovnsb_idl_txn,
                      struct ovsdb_idl_index *sbrec_datapath_binding_by_key,
                      struct ovsdb_idl_index *sbrec_port_binding_by_key,
-                     const struct sbrec_mac_binding_table *mac_binding_table)
+                     struct ovsdb_idl_index *sbrec_mac_binding_by_lport_ip)
 {
     if (!ovnsb_idl_txn) {
         return;
@@ -1766,7 +1806,9 @@ run_put_mac_bindings(struct ovsdb_idl_txn *ovnsb_idl_txn,
     const struct put_mac_binding *pmb;
     HMAP_FOR_EACH (pmb, hmap_node, &put_mac_bindings) {
         run_put_mac_binding(ovnsb_idl_txn, sbrec_datapath_binding_by_key,
-                            sbrec_port_binding_by_key, mac_binding_table, pmb);
+                            sbrec_port_binding_by_key,
+                            sbrec_mac_binding_by_lport_ip,
+                            pmb);
     }
     flush_put_mac_bindings();
 }

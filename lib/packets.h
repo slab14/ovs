@@ -956,7 +956,7 @@ struct icmp6_error_header {
 BUILD_ASSERT_DECL(ICMP6_ERROR_HEADER_LEN == sizeof(struct icmp6_error_header));
 
 uint32_t packet_csum_pseudoheader6(const struct ovs_16aligned_ip6_hdr *);
-uint16_t packet_csum_upperlayer6(const struct ovs_16aligned_ip6_hdr *,
+ovs_be16 packet_csum_upperlayer6(const struct ovs_16aligned_ip6_hdr *,
                                  const void *, uint8_t, uint16_t);
 
 /* Neighbor Discovery option field.
@@ -982,9 +982,6 @@ struct ovs_nd_prefix_opt {
     union ovs_16aligned_in6_addr prefix;
 };
 BUILD_ASSERT_DECL(ND_PREFIX_OPT_LEN == sizeof(struct ovs_nd_prefix_opt));
-
-#define ND_PREFIX_ON_LINK            0x80
-#define ND_PREFIX_AUTONOMOUS_ADDRESS 0x40
 
 /* Neighbor Discovery option: MTU. */
 #define ND_MTU_OPT_LEN 8
@@ -1294,6 +1291,16 @@ struct gre_base_hdr {
 #define ERSPAN_DIR_MASK     0x0008
 
 struct erspan_base_hdr {
+#ifdef WORDS_BIGENDIAN
+    uint8_t ver:4,
+            vlan_upper:4;
+    uint8_t vlan:8;
+    uint8_t cos:3,
+            en:2,
+            t:1,
+            session_id_upper:2;
+    uint8_t session_id:8;
+#else
     uint8_t vlan_upper:4,
             ver:4;
     uint8_t vlan:8;
@@ -1302,11 +1309,21 @@ struct erspan_base_hdr {
             en:2,
             cos:3;
     uint8_t session_id:8;
+#endif
 };
 
 struct erspan_md2 {
     ovs_16aligned_be32 timestamp;
     ovs_be16 sgt;
+#ifdef WORDS_BIGENDIAN
+    uint8_t p:1,
+            ft:5,
+            hwid_upper:2;
+    uint8_t hwid:4,
+            dir:1,
+            gra:2,
+            o:1;
+#else
     uint8_t hwid_upper:2,
             ft:5,
             p:1;
@@ -1314,6 +1331,7 @@ struct erspan_md2 {
             gra:2,
             dir:1,
             hwid:4;
+#endif
 };
 
 struct erspan_metadata {

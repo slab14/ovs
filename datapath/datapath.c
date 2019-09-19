@@ -2305,6 +2305,9 @@ static struct genl_family *dp_genl_families[] = {
 	&dp_flow_genl_family,
 	&dp_packet_genl_family,
 	&dp_meter_genl_family,
+#if	IS_ENABLED(CONFIG_NETFILTER_CONNCOUNT)
+	&dp_ct_limit_genl_family,
+#endif
 };
 
 static void dp_unregister_genl(int n_families)
@@ -2340,10 +2343,9 @@ static int __net_init ovs_init_net(struct net *net)
 
 	INIT_LIST_HEAD(&ovs_net->dps);
 	INIT_WORK(&ovs_net->dp_notify_work, ovs_dp_notify_wq);
-	ovs_ct_init(net);
 	ovs_netns_frags_init(net);
 	ovs_netns_frags6_init(net);
-	return 0;
+	return ovs_ct_init(net);
 }
 
 static void __net_exit list_vports_from_net(struct net *net, struct net *dnet,
@@ -2385,10 +2387,18 @@ static void __net_exit ovs_exit_net(struct net *dnet)
 	list_for_each_entry_safe(dp, dp_next, &ovs_net->dps, list_node)
 		__dp_destroy(dp);
 
+#ifdef HAVE_NET_RWSEM
+	down_read(&net_rwsem);
+#else
 	rtnl_lock();
+#endif
 	for_each_net(net)
 		list_vports_from_net(net, dnet, &head);
+#ifdef HAVE_NET_RWSEM
+	up_read(&net_rwsem);
+#else
 	rtnl_unlock();
+#endif
 
 	/* Detach all vports from given namespace. */
 	list_for_each_entry_safe(vport, vport_next, &head, detach_list) {
@@ -2478,16 +2488,6 @@ error:
 
 static void dp_cleanup(void)
 {
-#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8,0)
-	/* On RHEL 7.x kernels we hit a kernel paging error without
-	 * this barrier and subsequent hefty delay.  A process will
-	 * attempt to access openvwitch memory after it has been
-	 * unloaded.  Further debugging is needed on that but for
-	 * now let's not let customer machines panic.
-	 */
-	rcu_barrier();
-	msleep(3000);
-#endif
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
 	ovs_netdev_exit();
 	unregister_netdevice_notifier(&ovs_dp_device_notifier);
@@ -2512,3 +2512,4 @@ MODULE_ALIAS_GENL_FAMILY(OVS_VPORT_FAMILY);
 MODULE_ALIAS_GENL_FAMILY(OVS_FLOW_FAMILY);
 MODULE_ALIAS_GENL_FAMILY(OVS_PACKET_FAMILY);
 MODULE_ALIAS_GENL_FAMILY(OVS_METER_FAMILY);
+MODULE_ALIAS_GENL_FAMILY(OVS_CT_LIMIT_FAMILY);

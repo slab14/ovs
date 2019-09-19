@@ -404,6 +404,10 @@ endif
 
 tests_ovstest_LDADD = lib/libopenvswitch.la ovn/lib/libovn.la
 
+noinst_PROGRAMS += tests/test-stream
+tests_test_stream_SOURCES = tests/test-stream.c
+tests_test_stream_LDADD = lib/libopenvswitch.la
+
 noinst_PROGRAMS += tests/test-strtok_r
 tests_test_strtok_r_SOURCES = tests/test-strtok_r.c
 
@@ -421,6 +425,7 @@ CHECK_PYFILES = \
 	tests/test-l7.py \
 	tests/test-ovsdb.py \
 	tests/test-reconnect.py \
+	tests/test-stream.py \
 	tests/MockXenAPI.py \
 	tests/test-unix-socket.py \
 	tests/test-unixctl.py \

@@ -1,3 +1,4 @@
+# Generated automatically -- do not modify!    -*- buffer-read-only: t -*-
 # Spec file for Open vSwitch kernel modules on Red Hat Enterprise
 # Linux 6.
 
@@ -11,7 +12,7 @@
 %define oname openvswitch
 
 Name:           %{oname}-kmod
-Version:        @VERSION@
+Version:        2.9.90
 Release:        1%{?dist}
 Summary:        Open vSwitch kernel module
 
