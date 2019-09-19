@@ -44,6 +44,11 @@
 #include "vport.h"
 #include "flow_netlink.h"
 
+static bool prob_drop(uint32_t prob)
+{
+    return prandom_u32() > prob;
+}
+
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
 			      const struct nlattr *attr, int len);
@@ -1197,6 +1202,16 @@ static int execute_recirc(struct datapath *dp, struct sk_buff *skb,
 	return clone_execute(dp, skb, key, recirc_id, NULL, 0, last, true);
 }
 
+void reverse_tcp_data(char *data, unsigned int len)
+{
+     for(unsigned int i=0; i<len/2; ++i) {
+         char tmp = data[i];
+         data[i]=data[len-1-i];
+         data[len-1-i]=tmp;
+    }
+}
+
+
 /* Execute a list of actions against 'skb'. */
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
@@ -1347,8 +1362,24 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 				consume_skb(skb);
 				return 0;
 			}
-		}
+		case OVS_ACTION_ATTR_SLAB:
+		    /* perform my action here */
+                    struct iphdr *iph;
+                    iph=ip_hdr(skb);
+                    if(iph->protocol == IPPROTO_TCP) {
+                        reverse_tcp_data(skb->data, skb->data_len);
+                    }
+		    break;
 
+                case OVS_ACTION_ATTR_PROBDROP:
+                    if(prob_drop(nla_get_u32(a)))
+                    {
+                        while(rem) {
+                        a=nla_next(a,&rem);
+                        }
+                    }
+                    break;
+                }		    
 		if (unlikely(err)) {
 			kfree_skb(skb);
 			return err;

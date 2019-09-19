@@ -4885,6 +4885,20 @@ compose_set_mpls_tc_action(struct xlate_ctx *ctx, uint8_t tc)
     }
 }
 
+static void
+compose_probdrop_action(struct xlate_ctx *ctx, struct ofpact_probdrop *op)
+{
+    uint32_t prob=op->prob;
+    nl_msg_put_u32(ctx->odp_actions, OVS_ACTION_ATTR_PROBDROP, prob);
+}
+
+static void
+compose_slab_action(struct xlate_ctx *ctx, struct ofpact_null *op)
+{
+    //char *key = op->secret;
+    nl_msg_put_unspec_uninit(ctx->odp_actions, OVS_ACTION_ATTR_SLAB, sizeof *op);
+}
+
 static bool
 compose_dec_nsh_ttl_action(struct xlate_ctx *ctx)
 {
@@ -5464,6 +5478,8 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_ENCAP:
         case OFPACT_DECAP:
         case OFPACT_DEC_NSH_TTL:
+        case OFPACT_PROBDROP:
+        case OFPACT_SLAB:
             return false;
         }
     }
@@ -5761,6 +5777,8 @@ freeze_unroll_actions(const struct ofpact *a, const struct ofpact *end,
         case OFPACT_CT:
         case OFPACT_CT_CLEAR:
         case OFPACT_NAT:
+        case OFPACT_SLAB:
+        case OFPACT_PROBDROP:
             /* These may not generate PACKET INs. */
             break;
 
@@ -6275,6 +6293,8 @@ recirc_for_mpls(const struct ofpact *a, struct xlate_ctx *ctx)
     case OFPACT_WRITE_ACTIONS:
     case OFPACT_WRITE_METADATA:
     case OFPACT_GOTO_TABLE:
+    case OFPACT_SLAB:
+    case OFPACT_PROBDROP:
     default:
         break;
     }
@@ -6723,6 +6743,14 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
 
         case OFPACT_DEBUG_SLOW:
             ctx->xout->slow |= SLOW_ACTION;
+            break;
+
+        case OFPACT_SLAB:
+            compose_slab_action(ctx, ofpact_get_SLAB(a));
+            break;
+
+        case OFPACT_PROBDROP:
+            compose_probdrop_action(ctx, ofpact_get_PROBDROP(a));
             break;
         }
 

@@ -355,6 +355,12 @@ enum ofp_raw_action_type {
     /* NX1.3+(48): void. */
     NXAST_RAW_DEC_NSH_TTL,
 
+    /* OF1.0+(29): void. */
+    OFPAT_RAW_SLAB,
+
+    /* OF1.0+(30): uint32_t. */
+    OFPAT_RAW_PROBDROP,
+
 /* ## ------------------ ## */
 /* ## Debugging actions. ## */
 /* ## ------------------ ## */
@@ -490,6 +496,8 @@ ofpact_next_flattened(const struct ofpact *ofpact)
     case OFPACT_ENCAP:
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
+    case OFPACT_SLAB:
+    case OFPACT_PROBDROP:
         return ofpact_next(ofpact);
 
     case OFPACT_CLONE:
@@ -1461,7 +1469,7 @@ format_BUNDLE(const struct ofpact_bundle *a,
 {
     bundle_format(a, fp->port_map, fp->s);
 }
-
+
 /* Set VLAN actions. */
 
 static enum ofperr
@@ -6831,7 +6839,114 @@ format_GOTO_TABLE(const struct ofpact_goto_table *a,
     ds_put_format(fp->s, "%sgoto_table:%s", colors.param, colors.end);
     ofputil_format_table(a->table_id, fp->table_map, fp->s);
 }
-
+
+static void
+encode_PROBDROP(const struct ofpact_probdrop *prob,
+                enum ofp_version ofp_version OVS_UNUSED,
+                struct ofpbuf *out)
+{
+    uint32_t p=prob->prob;
+    put_OFPAT_PROBDROP(out,p);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_PROBDROP(uint32_t prob,
+                          enum ofp_version ofp_version OVS_UNUSED,
+                          struct ofpbuf *out)
+{
+    struct ofpact_probdrop *op;
+    op=ofpact_put_PROBDROP(out);
+    op->prob=prob;
+    return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_prob(char *arg, struct ofpbuf *ofpacts)
+{
+    struct ofpact_probdrop *probdrop;
+    uint32_t prob;
+    char *error;
+    error = str_to_u32(arg, &prob);
+    if(error) return error;
+    probdrop=ofpact_put_PROBDROP(ofpacts);
+    probdrop->prob=prob;
+    return NULL;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_PROBDROP(char *arg, const struct ofpact_parse_params *pp)
+{
+    return parse_prob(arg, pp->ofpacts);
+}
+
+static void
+format_PROBDROP(const struct ofpact_probdrop *a,
+                const struct ofpact_format_params *fp)
+{
+    ds_put_format(fp->s, "probdrop:%"PRIu32, a->prob);
+}
+/*
+static enum ofperr
+check_PROBDROP(const struct ofpact_probdrop *a OVS_UNUSED,
+               const struct ofpact_check_params *cp OVS_UNUSED)
+{
+    return 0;
+}
+*/
+static void
+encode_SLAB(const struct ofpact_null *null OVS_UNUSED,
+            enum ofp_version ofp_version OVS_UNUSED,
+            struct ofpbuf *out)
+{
+    //char *key = slab->secret;
+    put_OFPAT_SLAB(out);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_SLAB(struct ofpbuf *out)
+{
+     //struct ofpact_slab *op;
+     //op=ofpact_put_SLAB(out)->ofpact.raw=OFPAT_RAW_SLAB;
+     ofpact_put_SLAB(out)->ofpact.raw=OFPAT_RAW_SLAB;
+     //op->secret = key;
+
+     return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_slab_func(struct ofpbuf *ofpacts)
+{
+    //struct ofpact_slab *slab;
+    //char key[20];
+    //char *error;
+
+    //strncpy(key, arg, 20);
+    //slab = ofpact_put_SLAB(ofpacts)->ofpact.raw = OFPAT_RAW_SLAB;
+    ofpact_put_SLAB(ofpacts)->ofpact.raw = OFPAT_RAW_SLAB;
+    //slab->secret = key;
+    return NULL;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_SLAB(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
+{
+    return parse_slab_func(pp->ofpacts);
+}
+
+static void
+format_SLAB(const struct ofpact_null *a OVS_UNUSED,
+            const struct ofpact_format_params *fp)
+{
+  ds_put_format(fp->s, "%sslab%s", colors.value, colors.end);
+}
+/*
+static enum ofperr
+check_SLAB(const struct ofpact_slab *a OVS_UNUSED,
+           const struct ofpact_check_params *cp OVS_UNUSED)
+{
+    return 0;
+}
+*/
 static void
 log_bad_action(const struct ofp_action_header *actions, size_t actions_len,
                const struct ofp_action_header *bad_action, enum ofperr error)
@@ -6976,7 +7091,10 @@ ofpact_copy(struct ofpbuf *out, const struct ofpact *a)
     SLOT(OFPACT_PUSH_VLAN)                      \
     SLOT(OFPACT_DEC_TTL)                        \
     SLOT(OFPACT_DEC_MPLS_TTL)                   \
-    SLOT(OFPACT_DEC_NSH_TTL)
+    SLOT(OFPACT_DEC_NSH_TTL)                    \
+    SLOT(OFPACT_PROBDROP)                       \
+    SLOT(OFPACT_SLAB)
+
 
 /* Priority for "final actions" in an action set.  An action set only gets
  * executed at all if at least one of these actions is present.  If more than
@@ -7045,6 +7163,8 @@ action_set_classify(const struct ofpact *a)
     case OFPACT_SET_TUNNEL:
     case OFPACT_SET_VLAN_PCP:
     case OFPACT_SET_VLAN_VID:
+      //case OFPACT_SLAB:
+      //case OFPACT_PROBDROP:
         return ACTION_SLOT_SET_OR_MOVE;
 
     case OFPACT_BUNDLE:
@@ -7271,6 +7391,8 @@ ovs_instruction_type_from_ofpact_type(enum ofpact_type type)
     case OFPACT_ENCAP:
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
+    case OFPACT_SLAB:
+    case OFPACT_PROBDROP:
     default:
         return OVSINST_OFPIT11_APPLY_ACTIONS;
     }
@@ -7965,6 +8087,9 @@ ofpact_check__(enum ofputil_protocol *usable_protocols, struct ofpact *a,
         }
         return 0;
 
+    case OFPACT_PROBDROP:
+    case OFPACT_SLAB:
+      return 0;
     default:
         OVS_NOT_REACHED();
     }
@@ -8462,6 +8587,8 @@ ofpact_outputs_to_port(const struct ofpact *ofpact, ofp_port_t port)
     case OFPACT_ENCAP:
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
+    case OFPACT_SLAB:
+    case OFPACT_PROBDROP:
     default:
         return false;
     }

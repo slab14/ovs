@@ -673,6 +673,8 @@ requires_datapath_assistance(const struct nlattr *a)
     case OVS_ACTION_ATTR_PUSH_NSH:
     case OVS_ACTION_ATTR_POP_NSH:
     case OVS_ACTION_ATTR_CT_CLEAR:
+    case OVS_ACTION_ATTR_PROBDROP:      
+    case OVS_ACTION_ATTR_SLAB:
         return false;
 
     case OVS_ACTION_ATTR_UNSPEC:
@@ -899,6 +901,34 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
                 conntrack_clear(packet);
             }
             break;
+
+        case OVS_ACTION_ATTR_SLAB: {
+            size_t i;
+            const size_t num = dp_packet_batch_size(batch);
+            DP_PACKET_BATCH_REFILL_FOR_EACH (i, num, packet, batch) {
+                const char *tcp_data=dp_packet_get_tcp_payload(packet);
+                if(tcp_data!=NULL){
+                    unsigned int len=dp_packet_l4_size(packet);
+                    struct tcp_header *tcp = dp_packet_l4(packet);
+                    len-=4 * TCP_OFFSET(tcp->tcp_ctl);
+                    reverse_data((char *)tcp_data, len);
+                }
+                dp_packet_batch_refill(batch, packet,i);
+            }
+            break;
+        }
+        case OVS_ACTION_ATTR_PROBDROP: {
+            size_t i;
+            const size_t num = dp_packet_batch_size(batch);
+            DP_PACKET_BATCH_REFILL_FOR_EACH (i, num, packet, batch) {
+                if(!prob_drop(nl_attr_get_u32(a))) {
+                    dp_packet_batch_refill(batch, packet,i);
+                } else {
+                    dp_packet_delete(packet);
+                }
+            }
+            break;
+        }
 
         case OVS_ACTION_ATTR_OUTPUT:
         case OVS_ACTION_ATTR_TUNNEL_PUSH:

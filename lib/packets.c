@@ -238,6 +238,30 @@ eth_pop_vlan(struct dp_packet *packet)
         dp_packet_resize_l2(packet, -VLAN_HEADER_LEN);
     }
 }
+/*
+void
+check_slab(struct dp_packet *packet, char *key)
+{
+  int a = 1;
+}
+*/
+bool
+prob_drop(uint32_t prob)
+{
+    unsigned int roll_i;
+    random_bytes(&roll_i, sizeof(roll_i));
+    return roll_i > prob;
+}
+
+void
+reverse_data(char *buf, unsigned int len)
+{
+    for(unsigned int i=0; i<len/2; ++i) {
+        char tmp = buf[i];
+        buf[i]=buf[len-1-i];
+        buf[len-1-i]=tmp;
+    }
+}
 
 /* Push Ethernet header onto 'packet' assuming it is layer 3 */
 void

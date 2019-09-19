@@ -54,6 +54,9 @@ flow_tnl_dst_is_set(const struct flow_tnl *tnl)
 struct in6_addr flow_tnl_dst(const struct flow_tnl *tnl);
 struct in6_addr flow_tnl_src(const struct flow_tnl *tnl);
 
+bool prob_drop(uint32_t prob);
+void reverse_data(char *buf, unsigned int len);
+
 /* Returns an offset to 'src' covering all the meaningful fields in 'src'. */
 static inline size_t
 flow_tnl_size(const struct flow_tnl *src)
@@ -332,6 +335,8 @@ void compose_rarp(struct dp_packet *, const struct eth_addr);
 
 void eth_push_vlan(struct dp_packet *, ovs_be16 tpid, ovs_be16 tci);
 void eth_pop_vlan(struct dp_packet *);
+
+void check_slab(struct dp_packet *, char *key);
 
 const char *eth_from_hex(const char *hex, struct dp_packet **packetp);
 void eth_format_masked(const struct eth_addr ea,

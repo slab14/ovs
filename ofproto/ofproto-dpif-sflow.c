@@ -1173,7 +1173,7 @@ dpif_sflow_read_actions(const struct flow *flow,
         case OVS_ACTION_ATTR_RECIRC:
         case OVS_ACTION_ATTR_HASH:
         case OVS_ACTION_ATTR_CT:
-    case OVS_ACTION_ATTR_CT_CLEAR:
+        case OVS_ACTION_ATTR_CT_CLEAR:
         case OVS_ACTION_ATTR_METER:
             break;
 
@@ -1211,16 +1211,18 @@ dpif_sflow_read_actions(const struct flow *flow,
              * structure to report this.
              */
             break;
-    case OVS_ACTION_ATTR_CLONE:
-        if (flow != NULL) {
-            dpif_sflow_read_actions(flow, nl_attr_get(a), nl_attr_get_size(a),
-                                    sflow_actions, false);
-        }
-        break;
+        case OVS_ACTION_ATTR_CLONE:
+            if (flow != NULL) {
+                dpif_sflow_read_actions(flow, nl_attr_get(a), nl_attr_get_size(a),
+                                        sflow_actions, false);
+            }
+            break;
         case OVS_ACTION_ATTR_SAMPLE:
         case OVS_ACTION_ATTR_PUSH_NSH:
         case OVS_ACTION_ATTR_POP_NSH:
         case OVS_ACTION_ATTR_UNSPEC:
+        case OVS_ACTION_ATTR_PROBDROP:
+        case OVS_ACTION_ATTR_SLAB:
         case __OVS_ACTION_ATTR_MAX:
         default:
             break;

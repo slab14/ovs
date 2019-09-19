@@ -941,6 +941,9 @@ enum ovs_action_attr {
 	OVS_ACTION_ATTR_TUNNEL_POP,    /* u32 port number. */
 	OVS_ACTION_ATTR_CLONE,         /* Nested OVS_CLONE_ATTR_*.  */
 #endif
+        OVS_ACTION_ATTR_SLAB,
+        OVS_ACTION_ATTR_PROBDROP,
+
 	__OVS_ACTION_ATTR_MAX,	      /* Nothing past this will be accepted
 				       * from userspace. */
 
@@ -949,6 +952,7 @@ enum ovs_action_attr {
 					* set action converted from
 					* OVS_ACTION_ATTR_SET. */
 #endif
+
 };
 
 #define OVS_ACTION_ATTR_MAX (__OVS_ACTION_ATTR_MAX - 1)
