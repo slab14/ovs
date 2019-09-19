@@ -7,9 +7,9 @@ bin_PROGRAMS += \
 bin_SCRIPTS += utilities/ovs-docker \
 	utilities/ovs-pki \
 	utilities/ovs-docker-remote
-	utilities/ovs-pcap \
-	utilities/ovs-tcpdump \
-	utilities/ovs-tcpundump
+        #utilities/ovs-pcap \
+        #utilities/ovs-tcpdump \
+        #utilities/ovs-tcpundump
 if HAVE_PYTHON2
 bin_SCRIPTS += \
 	utilities/ovs-dpctl-top \
