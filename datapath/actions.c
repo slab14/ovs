@@ -1204,7 +1204,8 @@ static int execute_recirc(struct datapath *dp, struct sk_buff *skb,
 
 void reverse_tcp_data(char *data, unsigned int len)
 {
-     for(unsigned int i=0; i<len/2; ++i) {
+     unsigned int i=0;
+     for(i=0; i<len/2; ++i) {
          char tmp = data[i];
          data[i]=data[len-1-i];
          data[len-1-i]=tmp;
@@ -1362,7 +1363,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 				consume_skb(skb);
 				return 0;
 			}
-		case OVS_ACTION_ATTR_SLAB:
+                case OVS_ACTION_ATTR_SLAB: {
 		    /* perform my action here */
                     struct iphdr *iph;
                     iph=ip_hdr(skb);
@@ -1370,6 +1371,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                         reverse_tcp_data(skb->data, skb->data_len);
                     }
 		    break;
+                }
 
                 case OVS_ACTION_ATTR_PROBDROP:
                     if(prob_drop(nla_get_u32(a)))
