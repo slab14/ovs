@@ -1,6 +1,5 @@
 #*#
 *.a
-*.cache.*
 *.d
 *.gcno
 *.gcda
@@ -27,6 +26,7 @@
 .#*
 .*.cmd
 .*.swp
+.cache.*
 .coverage
 .deps
 .dirstamp
