@@ -2300,6 +2300,11 @@ parse_odp_action(const char *s, const struct simap *port_names,
         return 8;
     }
 
+    if (!strncmp(s,"slab",4)) {
+        nl_msg_put_flag(actions, OVS_ACTION_ATTR_SLAB);
+        return 4;
+    }
+
     {
         unsigned long long int meter_id;
         int n = -1;

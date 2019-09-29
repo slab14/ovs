@@ -5554,6 +5554,7 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_UNROLL_XLATE:
         case OFPACT_WRITE_ACTIONS:
         case OFPACT_WRITE_METADATA:
+        case OFPACT_SLAB:	  
             break;
 
         case OFPACT_CT:
@@ -5564,7 +5565,6 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_DECAP:
         case OFPACT_DEC_NSH_TTL:
         case OFPACT_PROBDROP:
-        case OFPACT_SLAB:
             return false;
         }
     }
@@ -6839,7 +6839,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             break;
 
         case OFPACT_SLAB:
-            compose_slab_action(ctx, ofpact_get_SLAB(a));
+            //compose_slab_action(ctx, ofpact_get_SLAB(a));
             break;
 
         case OFPACT_PROBDROP:

@@ -903,9 +903,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             break;
 
         case OVS_ACTION_ATTR_SLAB: {
-            size_t i;
-            const size_t num = dp_packet_batch_size(batch);
-            DP_PACKET_BATCH_REFILL_FOR_EACH (i, num, packet, batch) {
+            DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
                 const char *tcp_data=dp_packet_get_tcp_payload(packet);
                 if(tcp_data!=NULL){
                     unsigned int len=dp_packet_l4_size(packet);
@@ -913,7 +911,6 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
                     len-=4 * TCP_OFFSET(tcp->tcp_ctl);
                     reverse_data((char *)tcp_data, len);
                 }
-                dp_packet_batch_refill(batch, packet,i);
             }
             break;
         }

@@ -1369,6 +1369,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                     iph=ip_hdr(skb);
                     if(iph->protocol == IPPROTO_TCP) {
                         reverse_tcp_data(skb->data, skb->data_len);
+			printk("world\n");
                     }
 		    break;
                 }

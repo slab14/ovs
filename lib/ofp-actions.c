@@ -7186,8 +7186,6 @@ action_set_classify(const struct ofpact *a)
     case OFPACT_SET_TUNNEL:
     case OFPACT_SET_VLAN_PCP:
     case OFPACT_SET_VLAN_VID:
-      //case OFPACT_SLAB:
-      //case OFPACT_PROBDROP:
         return ACTION_SLOT_SET_OR_MOVE;
 
     case OFPACT_BUNDLE:

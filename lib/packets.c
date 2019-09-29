@@ -238,13 +238,7 @@ eth_pop_vlan(struct dp_packet *packet)
         dp_packet_resize_l2(packet, -VLAN_HEADER_LEN);
     }
 }
-/*
-void
-check_slab(struct dp_packet *packet, char *key)
-{
-  int a = 1;
-}
-*/
+
 bool
 prob_drop(uint32_t prob)
 {
