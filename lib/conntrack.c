@@ -941,7 +941,6 @@ conn_update_state(struct conntrack *ct, struct dp_packet *pkt,
 {
     ovs_assert(conn->conn_type == CT_CONN_TYPE_DEFAULT);
     bool create_new_conn = false;
-    struct conn lconn;
 
     if (ctx->icmp_related) {
         pkt->md.ct_state |= CS_RELATED;

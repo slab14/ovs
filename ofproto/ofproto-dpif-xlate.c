@@ -5032,12 +5032,14 @@ compose_probdrop_action(struct xlate_ctx *ctx, struct ofpact_probdrop *op)
     nl_msg_put_u32(ctx->odp_actions, OVS_ACTION_ATTR_PROBDROP, prob);
 }
 
+/*
 static void
 compose_slab_action(struct xlate_ctx *ctx, struct ofpact_null *op)
 {
     //char *key = op->secret;
     nl_msg_put_unspec_uninit(ctx->odp_actions, OVS_ACTION_ATTR_SLAB, sizeof *op);
 }
+*/
 
 static bool
 compose_dec_nsh_ttl_action(struct xlate_ctx *ctx)
