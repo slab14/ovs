@@ -1426,6 +1426,11 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
                         break;
                 }
+
+		case OVS_ACTION_ATTR_SIGN: {
+		  break;
+		}
+		  
 		}
 
 		if (unlikely(err)) {

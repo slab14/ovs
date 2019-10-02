@@ -749,6 +749,7 @@ requires_datapath_assistance(const struct nlattr *a)
     case OVS_ACTION_ATTR_POP_NSH:
     case OVS_ACTION_ATTR_CT_CLEAR:
     case OVS_ACTION_ATTR_CHECK_PKT_LEN:
+    case OVS_ACTION_ATTR_SIGN:
         return false;
 
     case OVS_ACTION_ATTR_UNSPEC:
@@ -981,6 +982,14 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
                 odp_execute_check_pkt_len(dp, packet, steal && last_action, a,
                                           dp_execute_action);
             }
+        break;
+    
+        case OVS_ACTION_ATTR_SIGN: {
+//          DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
+            //action
+//          }
+        break;
+        }
 
             if (last_action) {
                 /* We do not need to free the packets.

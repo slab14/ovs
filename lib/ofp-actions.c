@@ -361,6 +361,9 @@ enum ofp_raw_action_type {
     /* NX1.0+(49): struct nx_action_check_pkt_larger, ... VLMFF */
     NXAST_RAW_CHECK_PKT_LARGER,
 
+    /* OF1.0+(30): void. */
+    OFPAT_RAW_SIGN,
+
 /* ## ------------------ ## */
 /* ## Debugging actions. ## */
 /* ## ------------------ ## */
@@ -500,6 +503,7 @@ ofpact_next_flattened(const struct ofpact *ofpact)
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
+    case OFPACT_SIGN:
         return ofpact_next(ofpact);
 
     case OFPACT_CLONE:
@@ -1769,7 +1773,7 @@ check_SET_VLAN_PCP(struct ofpact_vlan_pcp *a, struct ofpact_check_params *cp)
 
     return 0;
 }
-
+
 /* Strip VLAN actions. */
 
 static enum ofperr
@@ -1831,7 +1835,7 @@ check_STRIP_VLAN(const struct ofpact_null *a OVS_UNUSED,
     flow_pop_vlan(&cp->match->flow, NULL);
     return 0;
 }
-
+
 /* Push VLAN action. */
 
 static enum ofperr
@@ -1903,7 +1907,44 @@ check_PUSH_VLAN(const struct ofpact_push_vlan *a OVS_UNUSED,
     flow->vlans[0].tci |= htons(VLAN_CFI);
     return 0;
 }
-
+
+static void
+encode_SIGN(const struct ofpact_null *null OVS_UNUSED,
+            enum ofp_version ofp_version OVS_UNUSED,
+            struct ofpbuf *out)
+{
+  put_OFPAT_SIGN(out);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_SIGN(struct ofpbuf *out)
+{
+  ofpact_put_SIGN(out)->ofpact.raw = OFPACT_SIGN;
+  return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_SIGN(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
+{
+  ofpact_put_SIGN(pp->ofpacts)->ofpact.raw = OFPACT_SIGN;
+  return NULL;
+}
+
+static void
+format_SIGN(const struct ofpact_null *a OVS_UNUSED,
+            const struct ofpact_format_params *fp)
+{
+  ds_put_format(fp->s, "%ssign%s", colors.value, colors.end);
+}
+
+static enum ofperr
+check_SIGN(const struct ofpact_null *a OVS_UNUSED,
+           const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+    
+
 /* Action structure for OFPAT10_SET_DL_SRC/DST and OFPAT11_SET_DL_SRC/DST. */
 struct ofp_action_dl_addr {
     ovs_be16 type;                  /* Type. */
@@ -7771,7 +7812,8 @@ ofpact_copy(struct ofpbuf *out, const struct ofpact *a)
     SLOT(OFPACT_PUSH_VLAN)                      \
     SLOT(OFPACT_DEC_TTL)                        \
     SLOT(OFPACT_DEC_MPLS_TTL)                   \
-    SLOT(OFPACT_DEC_NSH_TTL)
+    SLOT(OFPACT_DEC_NSH_TTL)                    \
+    SLOT(OFPACT_SIGN)
 
 /* Priority for "final actions" in an action set.  An action set only gets
  * executed at all if at least one of these actions is present.  If more than
@@ -8071,6 +8113,7 @@ ovs_instruction_type_from_ofpact_type(enum ofpact_type type,
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
+    case OFPACT_SIGN:
     default:
         return OVSINST_OFPIT11_APPLY_ACTIONS;
     }
@@ -8982,6 +9025,7 @@ ofpact_outputs_to_port(const struct ofpact *ofpact, ofp_port_t port)
     case OFPACT_DECAP:
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
+    case OFPACT_SIGN:
     default:
         return false;
     }

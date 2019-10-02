@@ -5605,6 +5605,7 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_WRITE_ACTIONS:
         case OFPACT_WRITE_METADATA:
         case OFPACT_CHECK_PKT_LARGER:
+        case OFPACT_SIGN:
             break;
 
         case OFPACT_CT:
@@ -5914,6 +5915,7 @@ freeze_unroll_actions(const struct ofpact *a, const struct ofpact *end,
         case OFPACT_CT_CLEAR:
         case OFPACT_NAT:
         case OFPACT_CHECK_PKT_LARGER:
+        case OFPACT_SIGN:
             /* These may not generate PACKET INs. */
             break;
 
@@ -6541,6 +6543,7 @@ recirc_for_mpls(const struct ofpact *a, struct xlate_ctx *ctx)
     case OFPACT_WRITE_METADATA:
     case OFPACT_GOTO_TABLE:
     case OFPACT_CHECK_PKT_LARGER:
+    case OFPACT_SIGN:
     default:
         break;
     }
@@ -6975,6 +6978,9 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             break;
         }
 
+        case OFPACT_SIGN:
+            break;
+  
         case OFPACT_CT:
             compose_conntrack_action(ctx, ofpact_get_CT(a), last);
             break;
