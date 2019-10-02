@@ -358,10 +358,10 @@ enum ofp_raw_action_type {
     /* NX1.3+(48): void. */
     NXAST_RAW_DEC_NSH_TTL,
 
-    /* OF1.0+(29): void. */
+    /* OF1.0+(30): void. */
     OFPAT_RAW_SLAB,
 
-    /* OF1.0+(30): uint32_t. */
+    /* OF1.0+(31): uint32_t. */
     OFPAT_RAW_PROBDROP,
 
     /* NX1.0+(49): struct nx_action_check_pkt_larger, ... VLMFF */
@@ -1839,7 +1839,22 @@ check_STRIP_VLAN(const struct ofpact_null *a OVS_UNUSED,
     flow_pop_vlan(&cp->match->flow, NULL);
     return 0;
 }
-
+
+static enum ofperr
+check_SLAB(const struct ofpact_null *a OVS_UNUSED,
+	   const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+
+static enum ofperr
+check_PROBDROP(const struct ofpact_probdrop *a OVS_UNUSED,
+	       const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+
+
 /* Push VLAN action. */
 
 static enum ofperr

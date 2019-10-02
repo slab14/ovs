@@ -2390,16 +2390,3 @@ ovn_controller_conn_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
     }
     unixctl_command_reply(conn, result);
 }
-
-static void
-ovn_controller_conn_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
-                         const char *argv[] OVS_UNUSED, void *idl_)
-{
-    const char *result = "not connected";
-    const struct ovsdb_idl *idl = idl_;
-
-    if (ovsdb_idl_is_connected(idl)) {
-       result = "connected";
-    }
-    unixctl_command_reply(conn, result);
-}

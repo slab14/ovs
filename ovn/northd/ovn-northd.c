@@ -1528,7 +1528,6 @@ update_dynamic_addresses(struct dynamic_address_update *update)
     case DYNAMIC:
         ip4 = htonl(ipam_get_unused_ip(update->od));
     }
-}
 
     struct eth_addr mac;
     switch (update->mac) {

@@ -806,22 +806,6 @@ conn_seq_skew_set(struct conntrack *ct, const struct conn *conn_in,
     }
 }
 
-/* Only called for 'CT_CONN_TYPE_DEFAULT' conns; must be called with no
- * locks held and upon return no locks are held. */
-static void
-conn_clean_safe(struct conntrack *ct, struct conn *conn,
-                struct conntrack_bucket *ctb, uint32_t hash)
-{
-    ovs_mutex_lock(&ctb->cleanup_mutex);
-    ct_lock_lock(&ctb->lock);
-    conn = conn_lookup_def(&conn->key, ctb, hash);
-    if (conn) {
-        conn_clean(ct, conn, ctb);
-    }
-    ct_lock_unlock(&ctb->lock);
-    ovs_mutex_unlock(&ctb->cleanup_mutex);
-}
-
 static bool
 ct_verify_helper(const char *helper, enum ct_alg_ctl_type ct_alg_ctl)
 {

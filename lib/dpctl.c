@@ -974,7 +974,7 @@ dpctl_dump_flows(int argc, const char *argv[], struct dpctl_params *dpctl_p)
         }
     }
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (error) {
         goto out_free;
     }
@@ -1094,7 +1094,7 @@ dpctl_put_flow(int argc, const char *argv[], enum dpif_flow_put_flags flags,
     struct simap port_names;
     int n, error;
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 4, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 4, &dpif);
     if (error) {
         return error;
     }
@@ -1198,7 +1198,7 @@ dpctl_get_flow(int argc, const char *argv[], struct dpctl_params *dpctl_p)
     struct ds ds;
     int n, error;
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif);
     if (error) {
         return error;
     }
@@ -1247,7 +1247,7 @@ dpctl_del_flow(int argc, const char *argv[], struct dpctl_params *dpctl_p)
     struct simap port_names;
     int n, error;
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif);
     if (error) {
         return error;
     }
@@ -1318,7 +1318,7 @@ dpctl_del_flows(int argc, const char *argv[], struct dpctl_params *dpctl_p)
 {
     struct dpif *dpif;
 
-    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (error) {
         return error;
     }
@@ -1383,7 +1383,7 @@ dpctl_dump_conntrack(int argc, const char *argv[],
         argc--;
     }
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (error) {
         return error;
     }
@@ -1498,7 +1498,7 @@ dpctl_ct_stats_show(int argc, const char *argv[],
         }
     }
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (error) {
         return error;
     }
@@ -1623,7 +1623,7 @@ dpctl_ct_bkts(int argc, const char *argv[],
         }
     }
 
-    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (error) {
         return error;
     }
@@ -1703,7 +1703,7 @@ dpctl_ct_set_maxconns(int argc, const char *argv[],
                       struct dpctl_params *dpctl_p)
 {
     struct dpif *dpif;
-    int error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif, NULL);
+    int error = opt_dpif_open(argc, argv, dpctl_p, 3, &dpif);
     if (!error) {
         uint32_t maxconns;
         if (ovs_scan(argv[argc - 1], "%"SCNu32, &maxconns)) {
@@ -1729,7 +1729,7 @@ dpctl_ct_get_maxconns(int argc, const char *argv[],
                     struct dpctl_params *dpctl_p)
 {
     struct dpif *dpif;
-    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (!error) {
         uint32_t maxconns;
         error = ct_dpif_get_maxconns(dpif, &maxconns);
@@ -1750,7 +1750,7 @@ dpctl_ct_get_nconns(int argc, const char *argv[],
                     struct dpctl_params *dpctl_p)
 {
     struct dpif *dpif;
-    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif, NULL);
+    int error = opt_dpif_open(argc, argv, dpctl_p, 2, &dpif);
     if (!error) {
         uint32_t nconns;
         error = ct_dpif_get_nconns(dpif, &nconns);

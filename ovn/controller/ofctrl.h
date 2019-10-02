@@ -85,9 +85,4 @@ void ofctrl_check_and_add_flow(struct ovn_desired_flow_table *,
 bool ofctrl_is_connected(void);
 void ofctrl_set_probe_interval(int probe_interval);
 
-void ofctrl_check_and_add_flow(struct hmap *desired_flows, uint8_t table_id,
-                               uint16_t priority, uint64_t cookie,
-                               const struct match *,
-                               const struct ofpbuf *ofpacts,
-                               bool log_duplicate_flow);
 #endif /* ovn/ofctrl.h */

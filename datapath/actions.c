@@ -1440,8 +1440,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                         }
                     }
                     break;
-                }		    
-                       break;
 
 		case OVS_ACTION_ATTR_CLONE: {
 			bool last = nla_is_last(a, rem);
