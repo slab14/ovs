@@ -55,7 +55,7 @@ AT_CHECK([tail -1 stdout], [0],
 
 dnl nonexistent tunnel
 AT_CHECK([ovs-appctl ofproto/trace ovs-dummy 'tunnel(src=5.5.5.5,dst=6.6.6.6,ttl=64,flags()),in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=6,tos=0,ttl=64,frag=no),tcp(src=8,dst=9)'], [2], [ignore], [dnl
-Invalid datapath flow
+no OpenFlow tunnel port for this packet
 ovs-appctl: ovs-vswitchd: server returned an error
 ])
 
@@ -314,7 +314,7 @@ set(tunnel(tun_id=0x3,dst=1.1.1.1,ttl=64,flags(df|key))),1
 ])
 
 AT_CHECK([ovs-appctl ofproto/trace ovs-dummy 'tunnel(tun_id=0xf,src=1.1.1.1,dst=2.2.2.2,ttl=64,flags(key)),in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=6,tos=0,ttl=64,frag=no),tcp(src=8,dst=9)'], [2], [ignore], [dnl
-Invalid datapath flow
+no OpenFlow tunnel port for this packet
 ovs-appctl: ovs-vswitchd: server returned an error
 ])
 OVS_VSWITCHD_STOP(["/receive tunnel port not found/d"])
@@ -901,6 +901,35 @@ AT_CHECK([tail -1 stdout], [0],
   [Datapath actions: set(tunnel(dst=1.1.1.1,ttl=64,tp_dst=4789,flags(df))),4789
 ])
 
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([tunnel - concomitant incompatible tunnels on the same port])
+OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=vxlan \
+                    options:remote_ip=flow ofport_request=1])
+
+AT_CHECK([ovs-vsctl add-port br0 p2 -- set Interface p2 type=vxlan \
+                    options:remote_ip=flow options:exts=gbp options:key=1 ofport_request=2], [0],
+  [], [ignore])
+
+AT_CHECK([grep 'p2: could not set configuration (File exists)' ovs-vswitchd.log | sed "s/^.*\(p2:.*\)$/\1/"], [0],
+  [p2: could not set configuration (File exists)
+])
+
+OVS_VSWITCHD_STOP(["/p2: VXLAN-GBP, and non-VXLAN-GBP tunnels can't be configured on the same dst_port/d
+/p2: could not set configuration (File exists)/d"])
+AT_CLEANUP
+
+AT_SETUP([tunnel - concomitant incompatible tunnels on different ports])
+OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=vxlan \
+                    options:remote_ip=flow ofport_request=1])
+
+AT_CHECK([ovs-vsctl add-port br0 p2 -- set Interface p2 type=vxlan options:dst_port=9000 \
+                    options:remote_ip=flow options:exts=gbp ofport_request=2])
+
+AT_CHECK([grep p2 ovs-vswitchd.log | sed "s/^.*\(bridge br0:.*\)$/\1/"], [0],
+  [bridge br0: added interface p2 on port 2
+])
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
@@ -950,6 +979,53 @@ Datapath actions: set(tunnel(tun_id=0x7b,dst=2.2.2.2,ttl=64,flags(df|key))),1
 dnl without the fix, the actions have geneve options:
 dnl set(tunnel(tun_id=0x7b,dst=2.2.2.2,ttl=64,geneve({class=0xffff,type=0,len=4,0x123}),flags(df|key))),1
 dnl which is not correct
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([tunnel - neighbor entry add and deletion])
+OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=gre \
+                    options:remote_ip=1.1.1.1 options:local_ip=2.2.2.2 \
+                    options:key=5 ofport_request=1 \
+                    -- add-port br0 p2 -- set Interface p2 type=gre \
+                    options:local_ip=3.3.3.3 options:remote_ip=4.4.4.4 \
+                    ofport_request=2])
+AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy], [0])
+
+dnl Populate tunnel neighbor cache table
+AT_CHECK([
+    ovs-appctl tnl/arp/set p1 10.0.0.1 00:00:10:00:00:01
+    ovs-appctl tnl/arp/set p1 10.0.0.2 00:00:10:00:00:02
+    ovs-appctl tnl/arp/set p2 10.0.1.1 00:00:10:00:01:01
+    ovs-appctl tnl/arp/set br0 10.0.2.1 00:00:10:00:02:01
+    ovs-appctl tnl/arp/set br0 10.0.2.2 00:00:10:00:02:02
+    ovs-appctl tnl/arp/set br1 20.0.0.1 00:00:20:00:00:01
+], [0], [stdout])
+
+AT_CHECK([ovs-appctl tnl/neigh/show | tail -n+3 | sort], [0], [dnl
+10.0.0.1                                      00:00:10:00:00:01   p1
+10.0.0.2                                      00:00:10:00:00:02   p1
+10.0.1.1                                      00:00:10:00:01:01   p2
+10.0.2.1                                      00:00:10:00:02:01   br0
+10.0.2.2                                      00:00:10:00:02:02   br0
+20.0.0.1                                      00:00:20:00:00:01   br1
+])
+
+dnl neighbor table after deleting port p1
+AT_CHECK([ovs-vsctl del-port br0 p1],[0], [stdout])
+AT_CHECK([ovs-appctl tnl/neigh/show | tail -n+3 | grep -w p1 | sort], [0], [dnl
+])
+
+dnl neighbor table after deleting bridge br0
+AT_CHECK([ovs-vsctl del-br br0],[0], [stdout])
+AT_CHECK([ovs-appctl tnl/neigh/show | tail -n+3 | sort], [0], [dnl
+20.0.0.1                                      00:00:20:00:00:01   br1
+])
+
+dnl neighbor table after deleting bridge br1
+AT_CHECK([ovs-vsctl del-br br1],[0], [stdout])
+AT_CHECK([ovs-appctl tnl/neigh/show | tail -n+3 | sort], [0], [dnl
+])
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP

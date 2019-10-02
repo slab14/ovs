@@ -23,7 +23,6 @@
 #include "ovn-l7.h"
 #include "hash.h"
 #include "lib/packets.h"
-#include "logical-fields.h"
 #include "nx-match.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/hmap.h"
@@ -39,6 +38,8 @@
 #include "packets.h"
 #include "openvswitch/shash.h"
 #include "simap.h"
+#include "uuid.h"
+#include "socket-util.h"
 
 VLOG_DEFINE_THIS_MODULE(actions);
 
@@ -239,7 +240,7 @@ add_prerequisite(struct action_context *ctx, const char *prerequisite)
     struct expr *expr;
     char *error;
 
-    expr = expr_parse_string(prerequisite, ctx->pp->symtab, NULL, NULL,
+    expr = expr_parse_string(prerequisite, ctx->pp->symtab, NULL, NULL, NULL,
                              &error);
     ovs_assert(!error);
     ctx->prereqs = expr_combine(EXPR_T_AND, ctx->prereqs, expr);
@@ -367,7 +368,13 @@ static void
 parse_LOAD(struct action_context *ctx, const struct expr_field *lhs)
 {
     size_t ofs = ctx->ovnacts->size;
-    struct ovnact_load *load = ovnact_put_LOAD(ctx->ovnacts);
+    struct ovnact_load *load;
+    if (lhs->symbol->ovn_field) {
+        load = ovnact_put_OVNFIELD_LOAD(ctx->ovnacts);
+    } else {
+        load = ovnact_put_LOAD(ctx->ovnacts);
+    }
+
     load->dst = *lhs;
 
     char *error = expr_type_check(lhs, lhs->n_bits, true);
@@ -1054,7 +1061,8 @@ encode_CT_LB(const struct ovnact_ct_lb *cl,
                       recirc_table, zone_reg);
     }
 
-    table_id = ovn_extend_table_assign_id(ep->group_table, ds_cstr(&ds));
+    table_id = ovn_extend_table_assign_id(ep->group_table, ds_cstr(&ds),
+                                          ep->lflow_uuid);
     ds_destroy(&ds);
     if (table_id == EXT_TABLE_ID_INVALID) {
         return;
@@ -1149,6 +1157,12 @@ parse_ICMP4(struct action_context *ctx)
 }
 
 static void
+parse_ICMP4_ERROR(struct action_context *ctx)
+{
+    parse_nested_action(ctx, OVNACT_ICMP4_ERROR, "ip4");
+}
+
+static void
 parse_ICMP6(struct action_context *ctx)
 {
     parse_nested_action(ctx, OVNACT_ICMP6, "ip6");
@@ -1206,9 +1220,21 @@ format_ICMP4(const struct ovnact_nest *nest, struct ds *s)
 }
 
 static void
+format_ICMP4_ERROR(const struct ovnact_nest *nest, struct ds *s)
+{
+    format_nested_action(nest, "icmp4_error", s);
+}
+
+static void
 format_ICMP6(const struct ovnact_nest *nest, struct ds *s)
 {
     format_nested_action(nest, "icmp6", s);
+}
+
+static void
+format_IGMP(const struct ovnact_null *a OVS_UNUSED, struct ds *s)
+{
+    ds_put_cstr(s, "igmp;");
 }
 
 static void
@@ -1239,6 +1265,21 @@ static void
 format_CLONE(const struct ovnact_nest *nest, struct ds *s)
 {
     format_nested_action(nest, "clone", s);
+}
+
+static void
+format_TRIGGER_EVENT(const struct ovnact_controller_event *event,
+                     struct ds *s)
+{
+    ds_put_format(s, "trigger_event(event = \"%s\"",
+                  event_to_string(event->event_type));
+    for (const struct ovnact_gen_option *o = event->options;
+         o < &event->options[event->n_options]; o++) {
+        ds_put_cstr(s, ", ");
+        ds_put_format(s, "%s = ", o->option->name);
+        expr_constant_set_format(&o->value, s);
+    }
+    ds_put_cstr(s, ");");
 }
 
 static void
@@ -1283,11 +1324,27 @@ encode_ICMP4(const struct ovnact_nest *on,
 }
 
 static void
+encode_ICMP4_ERROR(const struct ovnact_nest *on,
+                   const struct ovnact_encode_params *ep,
+                   struct ofpbuf *ofpacts)
+{
+    encode_nested_actions(on, ep, ACTION_OPCODE_ICMP4_ERROR, ofpacts);
+}
+
+static void
 encode_ICMP6(const struct ovnact_nest *on,
              const struct ovnact_encode_params *ep,
              struct ofpbuf *ofpacts)
 {
     encode_nested_actions(on, ep, ACTION_OPCODE_ICMP, ofpacts);
+}
+
+static void
+encode_IGMP(const struct ovnact_null *a OVS_UNUSED,
+            const struct ovnact_encode_params *ep OVS_UNUSED,
+            struct ofpbuf *ofpacts)
+{
+    encode_controller_op(ACTION_OPCODE_IGMP, ofpacts);
 }
 
 static void
@@ -1334,6 +1391,52 @@ encode_CLONE(const struct ovnact_nest *on,
     struct ofpact_nest *clone = ofpbuf_at_assert(ofpacts, ofs, sizeof *clone);
     ofpacts->header = clone;
     ofpact_finish_CLONE(ofpacts, &clone);
+}
+
+static void
+encode_event_empty_lb_backends_opts(struct ofpbuf *ofpacts,
+        const struct ovnact_controller_event *event)
+{
+    for (const struct ovnact_gen_option *o = event->options;
+         o < &event->options[event->n_options]; o++) {
+        struct controller_event_opt_header *hdr =
+            ofpbuf_put_uninit(ofpacts, sizeof *hdr);
+        const union expr_constant *c = o->value.values;
+        size_t size;
+        hdr->opt_code = htons(o->option->code);
+        if (!strcmp(o->option->type, "str")) {
+            size = strlen(c->string);
+            hdr->size = htons(size);
+            ofpbuf_put(ofpacts, c->string, size);
+        } else {
+            /* All empty_lb_backends fields are of type 'str' */
+            OVS_NOT_REACHED();
+        }
+    }
+}
+
+static void
+encode_TRIGGER_EVENT(const struct ovnact_controller_event *event,
+                     const struct ovnact_encode_params *ep OVS_UNUSED,
+                     struct ofpbuf *ofpacts)
+{
+    size_t oc_offset;
+
+    oc_offset = encode_start_controller_op(ACTION_OPCODE_EVENT, false,
+                                           NX_CTLR_NO_METER, ofpacts);
+    ovs_be32 ofs = htonl(event->event_type);
+    ofpbuf_put(ofpacts, &ofs, sizeof ofs);
+
+    switch (event->event_type) {
+    case OVN_EVENT_EMPTY_LB_BACKENDS:
+        encode_event_empty_lb_backends_opts(ofpacts, event);
+        break;
+    case OVN_EVENT_MAX:
+    default:
+        OVS_NOT_REACHED();
+    }
+
+    encode_finish_controller_op(oc_offset, ofpacts);
 }
 
 static void
@@ -1548,6 +1651,118 @@ free_gen_options(struct ovnact_gen_option *options, size_t n)
         expr_constant_set_destroy(&o->value);
     }
     free(options);
+}
+
+static void
+validate_empty_lb_backends(struct action_context *ctx,
+                           const struct ovnact_gen_option *options,
+                           size_t n_options)
+{
+    for (const struct ovnact_gen_option *o = options;
+         o < &options[n_options]; o++) {
+        const union expr_constant *c = o->value.values;
+        struct sockaddr_storage ss;
+        struct uuid uuid;
+
+        if (o->value.n_values > 1 || !c->string) {
+            lexer_error(ctx->lexer, "Invalid value for \"%s\" option",
+                        o->option->name);
+            return;
+        }
+
+        switch (o->option->code) {
+        case EMPTY_LB_VIP:
+            if (!inet_parse_active(c->string, 0, &ss, false)) {
+                lexer_error(ctx->lexer, "Invalid load balancer VIP '%s'",
+                            c->string);
+                return;
+            }
+            break;
+        case EMPTY_LB_PROTOCOL:
+            if (strcmp(c->string, "tcp") && strcmp(c->string, "udp")) {
+                lexer_error(ctx->lexer,
+                    "Load balancer protocol '%s' is not 'tcp' or 'udp'",
+                    c->string);
+                return;
+            }
+            break;
+        case EMPTY_LB_LOAD_BALANCER:
+            if (!uuid_from_string(&uuid, c->string)) {
+                lexer_error(ctx->lexer, "Load balancer '%s' is not a UUID",
+                            c->string);
+                return;
+            }
+            break;
+        }
+    }
+}
+
+static void
+parse_trigger_event(struct action_context *ctx,
+                    struct ovnact_controller_event *event)
+{
+    int event_type = 0;
+
+    lexer_force_match(ctx->lexer, LEX_T_LPAREN);
+
+    /* Event type must be listed first */
+    if (!lexer_match_id(ctx->lexer, "event")) {
+        lexer_syntax_error(ctx->lexer, "Expecting 'event' option");
+        return;
+    }
+    if (!lexer_force_match(ctx->lexer, LEX_T_EQUALS)) {
+        return;
+    }
+
+    if (ctx->lexer->token.type != LEX_T_STRING ||
+        strlen(ctx->lexer->token.s) >= 64) {
+        lexer_syntax_error(ctx->lexer, "Expecting string");
+        return;
+    }
+
+    event_type = string_to_event(ctx->lexer->token.s);
+    if (event_type < 0 || event_type >= OVN_EVENT_MAX) {
+        lexer_syntax_error(ctx->lexer, "Unknown event '%d'", event_type);
+        return;
+    }
+
+    event->event_type = event_type;
+    lexer_get(ctx->lexer);
+
+    lexer_match(ctx->lexer, LEX_T_COMMA);
+
+    size_t allocated_options = 0;
+    while (!lexer_match(ctx->lexer, LEX_T_RPAREN)) {
+        if (event->n_options >= allocated_options) {
+            event->options = x2nrealloc(event->options, &allocated_options,
+                                     sizeof *event->options);
+        }
+
+        struct ovnact_gen_option *o = &event->options[event->n_options++];
+        memset(o, 0, sizeof *o);
+        parse_gen_opt(ctx, o,
+                      &ctx->pp->controller_event_opts->event_opts[event_type],
+                      event_to_string(event_type));
+        if (ctx->lexer->error) {
+            return;
+        }
+
+        lexer_match(ctx->lexer, LEX_T_COMMA);
+    }
+
+    switch (event_type) {
+    case OVN_EVENT_EMPTY_LB_BACKENDS:
+        validate_empty_lb_backends(ctx, event->options, event->n_options);
+        break;
+    default:
+        OVS_NOT_REACHED();
+    }
+}
+
+static void
+ovnact_controller_event_free(struct ovnact_controller_event *event)
+{
+    free_gen_options(event->options, event->n_options);
 }
 
 static void
@@ -2188,7 +2403,8 @@ encode_LOG(const struct ovnact_log *log,
     uint32_t meter_id = NX_CTLR_NO_METER;
 
     if (log->meter) {
-        meter_id = ovn_extend_table_assign_id(ep->meter_table, log->meter);
+        meter_id = ovn_extend_table_assign_id(ep->meter_table, log->meter,
+                                              ep->lflow_uuid);
         if (meter_id == EXT_TABLE_ID_INVALID) {
             VLOG_WARN("Unable to assign id for log meter: %s", log->meter);
             return;
@@ -2281,7 +2497,8 @@ encode_SET_METER(const struct ovnact_set_meter *cl,
                          "rate=%"PRId64"", cl->rate);
     }
 
-    table_id = ovn_extend_table_assign_id(ep->meter_table, name);
+    table_id = ovn_extend_table_assign_id(ep->meter_table, name,
+                                          ep->lflow_uuid);
     free(name);
     if (table_id == EXT_TABLE_ID_INVALID) {
         return;
@@ -2295,6 +2512,150 @@ encode_SET_METER(const struct ovnact_set_meter *cl,
 static void
 ovnact_set_meter_free(struct ovnact_set_meter *ct OVS_UNUSED)
 {
+}
+
+static void
+format_OVNFIELD_LOAD(const struct ovnact_load *load , struct ds *s)
+{
+    const struct ovn_field *f = ovn_field_from_name(load->dst.symbol->name);
+    switch (f->id) {
+    case OVN_ICMP4_FRAG_MTU:
+        ds_put_format(s, "%s = %u;", f->name,
+                      ntohs(load->imm.value.be16_int));
+        break;
+
+    case OVN_FIELD_N_IDS:
+    default:
+        OVS_NOT_REACHED();
+    }
+}
+
+static void
+encode_OVNFIELD_LOAD(const struct ovnact_load *load,
+            const struct ovnact_encode_params *ep OVS_UNUSED,
+            struct ofpbuf *ofpacts)
+{
+    const struct ovn_field *f = ovn_field_from_name(load->dst.symbol->name);
+    switch (f->id) {
+    case OVN_ICMP4_FRAG_MTU: {
+        size_t oc_offset = encode_start_controller_op(
+            ACTION_OPCODE_PUT_ICMP4_FRAG_MTU, true, NX_CTLR_NO_METER,
+            ofpacts);
+        ofpbuf_put(ofpacts, &load->imm.value.be16_int, sizeof(ovs_be16));
+        encode_finish_controller_op(oc_offset, ofpacts);
+        break;
+    }
+    case OVN_FIELD_N_IDS:
+    default:
+        OVS_NOT_REACHED();
+    }
+}
+
+static void
+parse_check_pkt_larger(struct action_context *ctx,
+                       const struct expr_field *dst,
+                       struct ovnact_check_pkt_larger *cipl)
+{
+     /* Validate that the destination is a 1-bit, modifiable field. */
+    char *error = expr_type_check(dst, 1, true);
+    if (error) {
+        lexer_error(ctx->lexer, "%s", error);
+        free(error);
+        return;
+    }
+
+    int pkt_len;
+    lexer_get(ctx->lexer); /* Skip check_pkt_len. */
+    if (!lexer_force_match(ctx->lexer, LEX_T_LPAREN)
+        || !lexer_get_int(ctx->lexer, &pkt_len)
+        || !lexer_force_match(ctx->lexer, LEX_T_RPAREN)) {
+        return;
+    }
+
+    cipl->dst = *dst;
+    cipl->pkt_len = pkt_len;
+}
+
+static void
+format_CHECK_PKT_LARGER(const struct ovnact_check_pkt_larger *cipl,
+                        struct ds *s)
+{
+    expr_field_format(&cipl->dst, s);
+    ds_put_format(s, " = check_pkt_larger(%d);", cipl->pkt_len);
+}
+
+static void
+encode_CHECK_PKT_LARGER(const struct ovnact_check_pkt_larger *cipl,
+                        const struct ovnact_encode_params *ep OVS_UNUSED,
+                        struct ofpbuf *ofpacts)
+{
+    struct ofpact_check_pkt_larger *check_pkt_larger =
+        ofpact_put_CHECK_PKT_LARGER(ofpacts);
+    check_pkt_larger->pkt_len = cipl->pkt_len;
+    check_pkt_larger->dst = expr_resolve_field(&cipl->dst);
+}
+
+static void
+ovnact_check_pkt_larger_free(struct ovnact_check_pkt_larger *cipl OVS_UNUSED)
+{
+}
+
+static void
+parse_bind_vport(struct action_context *ctx)
+{
+    if (!lexer_force_match(ctx->lexer, LEX_T_LPAREN)) {
+        return;
+    }
+
+    if (ctx->lexer->token.type != LEX_T_STRING) {
+        lexer_syntax_error(ctx->lexer, "expecting port name string");
+        return;
+    }
+
+    struct ovnact_bind_vport *bind_vp = ovnact_put_BIND_VPORT(ctx->ovnacts);
+    bind_vp->vport = xstrdup(ctx->lexer->token.s);
+    lexer_get(ctx->lexer);
+    (void) (lexer_force_match(ctx->lexer, LEX_T_COMMA)
+            && action_parse_field(ctx, 0, false, &bind_vp->vport_parent)
+            && lexer_force_match(ctx->lexer, LEX_T_RPAREN));
+}
+
+static void
+format_BIND_VPORT(const struct ovnact_bind_vport *bind_vp,
+                  struct ds *s )
+{
+    ds_put_format(s, "bind_vport(\"%s\", ", bind_vp->vport);
+    expr_field_format(&bind_vp->vport_parent, s);
+    ds_put_cstr(s, ");");
+}
+
+static void
+encode_BIND_VPORT(const struct ovnact_bind_vport *vp,
+                 const struct ovnact_encode_params *ep,
+                 struct ofpbuf *ofpacts)
+{
+    uint32_t vport_key;
+    if (!ep->lookup_port(ep->aux, vp->vport, &vport_key)) {
+        return;
+    }
+
+    const struct arg args[] = {
+        { expr_resolve_field(&vp->vport_parent), MFF_LOG_INPORT },
+    };
+    encode_setup_args(args, ARRAY_SIZE(args), ofpacts);
+    size_t oc_offset = encode_start_controller_op(ACTION_OPCODE_BIND_VPORT,
+                                                  false, NX_CTLR_NO_METER,
+                                                  ofpacts);
+    ovs_be32 vp_key = htonl(vport_key);
+    ofpbuf_put(ofpacts, &vp_key, sizeof(ovs_be32));
+    encode_finish_controller_op(oc_offset, ofpacts);
+    encode_restore_args(args, ARRAY_SIZE(args), ofpacts);
+}
+
+static void
+ovnact_bind_vport_free(struct ovnact_bind_vport *bp)
+{
+    free(bp->vport);
 }
 
 /* Parses an assignment or exchange or put_dhcp_opts action. */
@@ -2326,6 +2687,10 @@ parse_set_action(struct action_context *ctx)
                 && lexer_lookahead(ctx->lexer) == LEX_T_LPAREN) {
             parse_put_nd_ra_opts(ctx, &lhs,
                                  ovnact_put_PUT_ND_RA_OPTS(ctx->ovnacts));
+        } else if (!strcmp(ctx->lexer->token.s, "check_pkt_larger")
+                && lexer_lookahead(ctx->lexer) == LEX_T_LPAREN) {
+            parse_check_pkt_larger(ctx, &lhs,
+                                   ovnact_put_CHECK_PKT_LARGER(ctx->ovnacts));
         } else {
             parse_assignment_action(ctx, false, &lhs);
         }
@@ -2370,8 +2735,12 @@ parse_action(struct action_context *ctx)
         parse_ARP(ctx);
     } else if (lexer_match_id(ctx->lexer, "icmp4")) {
         parse_ICMP4(ctx);
+    } else if (lexer_match_id(ctx->lexer, "icmp4_error")) {
+        parse_ICMP4_ERROR(ctx);
     } else if (lexer_match_id(ctx->lexer, "icmp6")) {
         parse_ICMP6(ctx);
+    } else if (lexer_match_id(ctx->lexer, "igmp")) {
+        ovnact_put_IGMP(ctx->ovnacts);
     } else if (lexer_match_id(ctx->lexer, "tcp_reset")) {
         parse_TCP_RESET(ctx);
     } else if (lexer_match_id(ctx->lexer, "nd_na")) {
@@ -2394,6 +2763,10 @@ parse_action(struct action_context *ctx)
         parse_LOG(ctx);
     } else if (lexer_match_id(ctx->lexer, "set_meter")) {
         parse_set_meter_action(ctx);
+    } else if (lexer_match_id(ctx->lexer, "trigger_event")) {
+        parse_trigger_event(ctx, ovnact_put_TRIGGER_EVENT(ctx->ovnacts));
+    } else if (lexer_match_id(ctx->lexer, "bind_vport")) {
+        parse_bind_vport(ctx);
     } else {
         lexer_syntax_error(ctx->lexer, "expecting action");
     }

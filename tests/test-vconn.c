@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2017 Nicira, Inc.
+ * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2017, 2019 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,8 @@
 #include "stream-ssl.h"
 #include "timeval.h"
 #include "util.h"
+
+#define TIMEOUT 10
 
 struct fake_pvconn {
     const char *type;
@@ -152,9 +154,9 @@ test_refuse_connection(struct ovs_cmdl_context *ctx)
     fpv_close(&fpv);
     vconn_run(vconn);
 
-    error = vconn_connect_block(vconn);
+    error = vconn_connect_block(vconn, (TIMEOUT - 2) * 1000);
     if (!strcmp(type, "tcp")) {
-        if (error != ECONNRESET && error != EPIPE
+        if (error != ECONNRESET && error != EPIPE && error != ETIMEDOUT
 #ifdef _WIN32
             && error != WSAECONNRESET
 #endif
@@ -165,7 +167,7 @@ test_refuse_connection(struct ovs_cmdl_context *ctx)
     } else if (!strcmp(type, "unix")) {
         CHECK_ERRNO(error, EPIPE);
     } else if (!strcmp(type, "ssl")) {
-        if (error != EPROTO && error != ECONNRESET) {
+        if (error != EPROTO && error != ECONNRESET && error != ETIMEDOUT) {
             ovs_fatal(0, "unexpected vconn_connect() return value %d (%s)",
                       error, ovs_strerror(error));
         }
@@ -194,7 +196,7 @@ test_accept_then_close(struct ovs_cmdl_context *ctx)
     stream_close(fpv_accept(&fpv));
     fpv_close(&fpv);
 
-    error = vconn_connect_block(vconn);
+    error = vconn_connect_block(vconn, -1);
     if (!strcmp(type, "tcp") || !strcmp(type, "unix")) {
         if (error != ECONNRESET && error != EPIPE
 #ifdef _WIN32
@@ -237,7 +239,7 @@ test_read_hello(struct ovs_cmdl_context *ctx)
        if (retval == sizeof hello) {
            enum ofpraw raw;
 
-           CHECK(hello.version, OFP14_VERSION);
+           CHECK(hello.version, OFP15_VERSION);
            CHECK(ofpraw_decode_partial(&raw, &hello, sizeof hello), 0);
            CHECK(raw, OFPRAW_OFPT_HELLO);
            CHECK(ntohs(hello.length), sizeof hello);
@@ -254,7 +256,7 @@ test_read_hello(struct ovs_cmdl_context *ctx)
        poll_block();
     }
     stream_close(stream);
-    error = vconn_connect_block(vconn);
+    error = vconn_connect_block(vconn, -1);
     if (error != ECONNRESET && error != EPIPE) {
         ovs_fatal(0, "unexpected vconn_connect() return value %d (%s)",
                   error, ovs_strerror(error));
@@ -310,7 +312,7 @@ test_send_hello(const char *type, const void *out, size_t out_size,
            if (retval == sizeof hello) {
                enum ofpraw raw;
 
-               CHECK(hello.version, OFP14_VERSION);
+               CHECK(hello.version, OFP15_VERSION);
                CHECK(ofpraw_decode_partial(&raw, &hello, sizeof hello), 0);
                CHECK(raw, OFPRAW_OFPT_HELLO);
                CHECK(ntohs(hello.length), sizeof hello);
@@ -361,7 +363,7 @@ test_send_plain_hello(struct ovs_cmdl_context *ctx)
     const char *type = ctx->argv[1];
     struct ofpbuf *hello;
 
-    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP14_VERSION,
+    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP15_VERSION,
                              htonl(0x12345678), 0);
     test_send_hello(type, hello->data, hello->size, 0);
     ofpbuf_delete(hello);
@@ -377,7 +379,7 @@ test_send_long_hello(struct ovs_cmdl_context *ctx)
     struct ofpbuf *hello;
     enum { EXTRA_BYTES = 8 };
 
-    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP14_VERSION,
+    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP15_VERSION,
                              htonl(0x12345678), EXTRA_BYTES);
     ofpbuf_put_zeros(hello, EXTRA_BYTES);
     ofpmsg_update_length(hello);
@@ -393,7 +395,7 @@ test_send_echo_hello(struct ovs_cmdl_context *ctx)
     const char *type = ctx->argv[1];
     struct ofpbuf *echo;
 
-    echo = ofpraw_alloc_xid(OFPRAW_OFPT_ECHO_REQUEST, OFP14_VERSION,
+    echo = ofpraw_alloc_xid(OFPRAW_OFPT_ECHO_REQUEST, OFP15_VERSION,
                              htonl(0x12345678), 0);
     test_send_hello(type, echo->data, echo->size, EPROTO);
     ofpbuf_delete(echo);
@@ -419,7 +421,7 @@ test_send_invalid_version_hello(struct ovs_cmdl_context *ctx)
     const char *type = ctx->argv[1];
     struct ofpbuf *hello;
 
-    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP14_VERSION,
+    hello = ofpraw_alloc_xid(OFPRAW_OFPT_HELLO, OFP15_VERSION,
                              htonl(0x12345678), 0);
     ((struct ofp_header *) hello->data)->version = 0;
     test_send_hello(type, hello->data, hello->size, EPROTO);
@@ -451,7 +453,7 @@ test_vconn_main(int argc, char *argv[])
     vlog_set_levels(NULL, VLF_CONSOLE, VLL_DBG);
     fatal_ignore_sigpipe();
 
-    time_alarm(10);
+    time_alarm(TIMEOUT);
 
     ovs_cmdl_run_command(&ctx, commands);
 }

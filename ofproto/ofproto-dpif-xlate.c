@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017 Nicira, Inc.
+/* Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2019 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -149,7 +149,8 @@ struct xbundle {
                                     * NULL if all VLANs are trunked. */
     unsigned long *cvlans;         /* Bitmap of allowed customer vlans,
                                     * NULL if all VLANs are allowed */
-    bool use_priority_tags;        /* Use 802.1p tag for frames in VLAN 0? */
+    enum port_priority_tags_mode use_priority_tags;
+                                   /* Use 802.1p tag for frames in VLAN 0? */
     bool floodable;                /* No port has OFPUTIL_PC_NO_FLOOD set? */
     bool protected;                /* Protected port mode */
 };
@@ -487,6 +488,7 @@ ctx_cancel_freeze(struct xlate_ctx *ctx)
         ctx->recirc_update_dp_hash = false;
         ofpbuf_clear(&ctx->frozen_actions);
         ctx->frozen_actions.header = NULL;
+        ctx->pause = NULL;
     }
 }
 
@@ -547,7 +549,8 @@ static void xvlan_copy(struct xvlan *dst, const struct xvlan *src);
 static void xvlan_pop(struct xvlan *src);
 static void xvlan_push_uninit(struct xvlan *src);
 static void xvlan_extract(const struct flow *, struct xvlan *);
-static void xvlan_put(struct flow *, const struct xvlan *);
+static void xvlan_put(struct flow *, const struct xvlan *,
+                      enum port_priority_tags_mode);
 static void xvlan_input_translate(const struct xbundle *,
                                   const struct xvlan *in,
                                   struct xvlan *xvlan);
@@ -603,7 +606,7 @@ static void xlate_xbundle_set(struct xbundle *xbundle,
                               enum port_vlan_mode vlan_mode,
                               uint16_t qinq_ethtype, int vlan,
                               unsigned long *trunks, unsigned long *cvlans,
-                              bool use_priority_tags,
+                              enum port_priority_tags_mode,
                               const struct bond *bond, const struct lacp *lacp,
                               bool floodable, bool protected);
 static void xlate_xport_set(struct xport *xport, odp_port_t odp_port,
@@ -668,10 +671,38 @@ xlate_report_error(const struct xlate_ctx *ctx, const char *format, ...)
     if (ctx->xin->trace) {
         oftrace_report(ctx->xin->trace, OFT_ERROR, ds_cstr(&s));
     } else {
-        ds_put_cstr(&s, " while processing ");
+        ds_put_format(&s, " on bridge %s while processing ",
+                      ctx->xbridge->name);
         flow_format(&s, &ctx->base_flow, NULL);
-        ds_put_format(&s, " on bridge %s", ctx->xbridge->name);
         VLOG_WARN("%s", ds_cstr(&s));
+    }
+    ds_destroy(&s);
+}
+
+/* This is like xlate_report() for messages that should be logged
+   at the info level (even when not tracing). */
+static void OVS_PRINTF_FORMAT(2, 3)
+xlate_report_info(const struct xlate_ctx *ctx, const char *format, ...)
+{
+    static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
+    if (!OVS_UNLIKELY(ctx->xin->trace)
+        && (!ctx->xin->packet || VLOG_DROP_INFO(&rl))) {
+        return;
+    }
+
+    struct ds s = DS_EMPTY_INITIALIZER;
+    va_list args;
+    va_start(args, format);
+    ds_put_format_valist(&s, format, args);
+    va_end(args);
+
+    if (ctx->xin->trace) {
+        oftrace_report(ctx->xin->trace, OFT_WARN, ds_cstr(&s));
+    } else {
+        ds_put_format(&s, " on bridge %s while processing ",
+                      ctx->xbridge->name);
+        flow_format(&s, &ctx->base_flow, NULL);
+        VLOG_INFO("%s", ds_cstr(&s));
     }
     ds_destroy(&s);
 }
@@ -970,7 +1001,7 @@ static void
 xlate_xbundle_set(struct xbundle *xbundle,
                   enum port_vlan_mode vlan_mode, uint16_t qinq_ethtype,
                   int vlan, unsigned long *trunks, unsigned long *cvlans,
-                  bool use_priority_tags,
+                  enum port_priority_tags_mode use_priority_tags,
                   const struct bond *bond, const struct lacp *lacp,
                   bool floodable, bool protected)
 {
@@ -1287,7 +1318,7 @@ xlate_bundle_set(struct ofproto_dpif *ofproto, struct ofbundle *ofbundle,
                  const char *name, enum port_vlan_mode vlan_mode,
                  uint16_t qinq_ethtype, int vlan,
                  unsigned long *trunks, unsigned long *cvlans,
-                 bool use_priority_tags,
+                 enum port_priority_tags_mode use_priority_tags,
                  const struct bond *bond, const struct lacp *lacp,
                  bool floodable, bool protected)
 {
@@ -1450,12 +1481,17 @@ xlate_ofport_remove(struct ofport_dpif *ofport)
     ovs_assert(new_xcfg);
 
     xport = xport_lookup(new_xcfg, ofport);
+    if (xport) {
+        tnl_neigh_flush(netdev_get_name(xport->netdev));
+    }
     xlate_xport_remove(new_xcfg, xport);
 }
 
 static struct ofproto_dpif *
-xlate_lookup_ofproto_(const struct dpif_backer *backer, const struct flow *flow,
-                      ofp_port_t *ofp_in_port, const struct xport **xportp)
+xlate_lookup_ofproto_(const struct dpif_backer *backer,
+                      const struct flow *flow,
+                      ofp_port_t *ofp_in_port, const struct xport **xportp,
+                      char **errorp)
 {
     struct xlate_cfg *xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
     const struct xport *xport;
@@ -1467,6 +1503,10 @@ xlate_lookup_ofproto_(const struct dpif_backer *backer, const struct flow *flow,
         recirc_id_node = recirc_id_node_find(flow->recirc_id);
 
         if (OVS_UNLIKELY(!recirc_id_node)) {
+            if (errorp) {
+                *errorp = xasprintf("no recirculation data for recirc_id "
+                                    "%"PRIu32, flow->recirc_id);
+            }
             return NULL;
         }
 
@@ -1486,10 +1526,19 @@ xlate_lookup_ofproto_(const struct dpif_backer *backer, const struct flow *flow,
                          ? tnl_port_receive(flow)
                          : odp_port_to_ofport(backer, flow->in_port.odp_port));
     if (OVS_UNLIKELY(!xport)) {
+        if (errorp) {
+            *errorp = (tnl_port_should_receive(flow)
+                       ? xstrdup("no OpenFlow tunnel port for this packet")
+                       : xasprintf("no OpenFlow tunnel port for datapath "
+                                   "port %"PRIu32, flow->in_port.odp_port));
+        }
         return NULL;
     }
 
 out:
+    if (errorp) {
+        *errorp = NULL;
+    }
     *xportp = xport;
     if (ofp_in_port) {
         *ofp_in_port = xport->ofp_port;
@@ -1501,11 +1550,11 @@ out:
  * returns the corresponding struct ofproto_dpif and OpenFlow port number. */
 struct ofproto_dpif *
 xlate_lookup_ofproto(const struct dpif_backer *backer, const struct flow *flow,
-                     ofp_port_t *ofp_in_port)
+                     ofp_port_t *ofp_in_port, char **errorp)
 {
     const struct xport *xport;
 
-    return xlate_lookup_ofproto_(backer, flow, ofp_in_port, &xport);
+    return xlate_lookup_ofproto_(backer, flow, ofp_in_port, &xport, errorp);
 }
 
 /* Given a datapath and flow metadata ('backer', and 'flow' respectively),
@@ -1526,7 +1575,7 @@ xlate_lookup(const struct dpif_backer *backer, const struct flow *flow,
     struct ofproto_dpif *ofproto;
     const struct xport *xport;
 
-    ofproto = xlate_lookup_ofproto_(backer, flow, ofp_in_port, &xport);
+    ofproto = xlate_lookup_ofproto_(backer, flow, ofp_in_port, &xport, NULL);
 
     if (!ofproto) {
         return ENODEV;
@@ -1759,7 +1808,11 @@ rstp_process_packet(const struct xport *xport, const struct dp_packet *packet)
         dp_packet_set_size(&payload, ntohs(eth->eth_type) + ETH_HEADER_LEN);
     }
 
-    if (dp_packet_try_pull(&payload, ETH_HEADER_LEN + LLC_HEADER_LEN)) {
+    int len = ETH_HEADER_LEN + LLC_HEADER_LEN;
+    if (eth->eth_type == htons(ETH_TYPE_VLAN)) {
+        len += VLAN_HEADER_LEN;
+    }
+    if (dp_packet_try_pull(&payload, len)) {
         rstp_port_received_bpdu(xport->rstp_port, dp_packet_data(&payload),
                                 dp_packet_size(&payload));
     }
@@ -2221,13 +2274,15 @@ xvlan_extract(const struct flow *flow, struct xvlan *xvlan)
 
 /* Put VLAN information (headers) to flow */
 static void
-xvlan_put(struct flow *flow, const struct xvlan *xvlan)
+xvlan_put(struct flow *flow, const struct xvlan *xvlan,
+          enum port_priority_tags_mode use_priority_tags)
 {
     ovs_be16 tci;
     int i;
     for (i = 0; i < FLOW_MAX_VLAN_HEADERS; i++) {
         tci = htons(xvlan->v[i].vid | (xvlan->v[i].pcp & VLAN_PCP_MASK));
-        if (tci) {
+        if (tci || ((use_priority_tags == PORT_PRIORITY_TAGS_ALWAYS) &&
+            xvlan->v[i].tpid)) {
             tci |= htons(VLAN_CFI);
             flow->vlans[i].tpid = xvlan->v[i].tpid ?
                                   htons(xvlan->v[i].tpid) :
@@ -2401,7 +2456,7 @@ output_normal(struct xlate_ctx *ctx, const struct xbundle *out_xbundle,
     }
 
     memcpy(&old_vlans, &ctx->xin->flow.vlans, sizeof(old_vlans));
-    xvlan_put(&ctx->xin->flow, &out_xvlan);
+    xvlan_put(&ctx->xin->flow, &out_xvlan, out_xbundle->use_priority_tags);
 
     compose_output_action(ctx, xport->ofp_port, use_recirc ? &xr : NULL,
                           false, false);
@@ -3264,6 +3319,7 @@ process_special(struct xlate_ctx *ctx, const struct xport *xport)
     const struct xbridge *xbridge = ctx->xbridge;
     const struct dp_packet *packet = ctx->xin->packet;
     enum slow_path_reason slow;
+    bool lacp_may_enable;
 
     if (!xport) {
         slow = 0;
@@ -3284,7 +3340,14 @@ process_special(struct xlate_ctx *ctx, const struct xport *xport)
     } else if (xport->xbundle && xport->xbundle->lacp
                && flow->dl_type == htons(ETH_TYPE_LACP)) {
         if (packet) {
-            lacp_process_packet(xport->xbundle->lacp, xport->ofport, packet);
+            lacp_may_enable = lacp_process_packet(xport->xbundle->lacp,
+                                                  xport->ofport, packet);
+            /* Update LACP status in bond-slave to avoid packet-drops until
+             * LACP state machine is run by the main thread. */
+            if (xport->xbundle->bond && lacp_may_enable) {
+                bond_slave_set_may_enable(xport->xbundle->bond, xport->ofport,
+                                          lacp_may_enable);
+            }
         }
         slow = SLOW_LACP;
     } else if ((xbridge->stp || xbridge->rstp) &&
@@ -4504,6 +4567,7 @@ pick_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
      */
     if (ctx->was_mpls) {
         ctx_trigger_freeze(ctx);
+        return NULL;
     }
 
     switch (group->selection_method) {
@@ -5089,7 +5153,7 @@ xlate_output_action(struct xlate_ctx *ctx, ofp_port_t port,
         if (port != ctx->xin->flow.in_port.ofp_port) {
             compose_output_action(ctx, port, NULL, is_last_action, truncate);
         } else {
-            xlate_report(ctx, OFT_WARN, "skipping output to input port");
+            xlate_report_info(ctx, "skipping output to input port");
         }
         break;
     }
@@ -5135,7 +5199,7 @@ xlate_output_trunc_action(struct xlate_ctx *ctx,
 {
     bool support_trunc = ctx->xbridge->support.trunc;
     struct ovs_action_trunc *trunc;
-    char name[OFP10_MAX_PORT_NAME_LEN];
+    char name[OFP_MAX_PORT_NAME_LEN];
 
     switch (port) {
     case OFPP_TABLE:
@@ -5174,7 +5238,7 @@ xlate_output_trunc_action(struct xlate_ctx *ctx,
                 ctx->xout->slow |= SLOW_ACTION;
             }
         } else {
-            xlate_report(ctx, OFT_WARN, "skipping output to input port");
+            xlate_report_info(ctx, "skipping output to input port");
         }
         break;
     }
@@ -5555,6 +5619,7 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_WRITE_ACTIONS:
         case OFPACT_WRITE_METADATA:
         case OFPACT_SLAB:	  
+        case OFPACT_CHECK_PKT_LARGER:
             break;
 
         case OFPACT_CT:
@@ -5866,6 +5931,7 @@ freeze_unroll_actions(const struct ofpact *a, const struct ofpact *end,
         case OFPACT_NAT:
         case OFPACT_SLAB:
         case OFPACT_PROBDROP:
+        case OFPACT_CHECK_PKT_LARGER:
             /* These may not generate PACKET INs. */
             break;
 
@@ -6056,6 +6122,118 @@ compose_ct_clear_action(struct xlate_ctx *ctx)
     if (ctx->xbridge->support.ct_clear) {
         nl_msg_put_flag(ctx->odp_actions,  OVS_ACTION_ATTR_CT_CLEAR);
     }
+}
+
+/* check_pkt_larger action checks the packet length and stores the
+ * result in the register bit. We translate this action to the
+ * datapath action - 'check_pkt_len' whose format
+ * is: 'check_pkt_len(pkt_len, ge(actions), le(actions))'.
+ *
+ * We first set the destination register bit to 1 and call
+ * 'do_xlate_actions' for the case - packet len greater than
+ * the specified packet length.
+ *
+ * We then set the destination register bit to 0 and call
+ * 'do_xlate_actions' for the case - packet length is lesser or
+ * equal to the specified packet length.
+ *
+ * It is possible for freezing to happen for both the cases.
+ */
+static void
+xlate_check_pkt_larger(struct xlate_ctx *ctx,
+                       struct ofpact_check_pkt_larger *check_pkt_larger,
+                       const struct ofpact *remaining_acts,
+                       size_t remaining_acts_len)
+{
+    union mf_subvalue value;
+    memset(&value, 0, sizeof value);
+    if (!ctx->xbridge->support.check_pkt_len) {
+        uint8_t is_pkt_larger = 0;
+        if (ctx->xin->packet) {
+            is_pkt_larger =
+                dp_packet_size(ctx->xin->packet) > check_pkt_larger->pkt_len;
+        }
+        value.u8_val = is_pkt_larger;
+        mf_write_subfield_flow(&check_pkt_larger->dst, &value,
+                               &ctx->xin->flow);
+        /* If datapath doesn't support check_pkt_len action, then set the
+         * SLOW_ACTION flag. If we don't set SLOW_ACTION, we
+         * will push a flow to the datapath based on the packet length
+         * in ctx->xin->packet. For subsequent patches which match the
+         * same flow, datapath will apply the actions without considering
+         * the packet length. This results in wrong actions being applied.
+         */
+        ctx->xout->slow |= SLOW_ACTION;
+        return;
+    }
+
+    struct ofpbuf old_stack = ctx->stack;
+    union mf_subvalue new_stack[1024 / sizeof(union mf_subvalue)];
+    ofpbuf_use_stub(&ctx->stack, new_stack, sizeof new_stack);
+    ofpbuf_put(&ctx->stack, old_stack.data, old_stack.size);
+
+    struct ofpbuf old_action_set = ctx->action_set;
+    uint64_t actset_stub[1024 / 8];
+    ofpbuf_use_stub(&ctx->action_set, actset_stub, sizeof actset_stub);
+    ofpbuf_put(&ctx->action_set, old_action_set.data, old_action_set.size);
+
+    struct flow old_flow = ctx->xin->flow;
+    xlate_commit_actions(ctx);
+    struct flow old_base = ctx->base_flow;
+    bool old_was_mpls = ctx->was_mpls;
+    bool old_conntracked = ctx->conntracked;
+
+    size_t offset = nl_msg_start_nested(ctx->odp_actions,
+                                        OVS_ACTION_ATTR_CHECK_PKT_LEN);
+    nl_msg_put_u16(ctx->odp_actions, OVS_CHECK_PKT_LEN_ATTR_PKT_LEN,
+                   check_pkt_larger->pkt_len);
+    size_t offset_attr = nl_msg_start_nested(
+        ctx->odp_actions, OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER);
+    value.u8_val = 1;
+    mf_write_subfield_flow(&check_pkt_larger->dst, &value, &ctx->xin->flow);
+    do_xlate_actions(remaining_acts, remaining_acts_len, ctx, true, false);
+    if (!ctx->freezing) {
+        xlate_action_set(ctx);
+    }
+    if (ctx->freezing) {
+        finish_freezing(ctx);
+    }
+    nl_msg_end_nested(ctx->odp_actions, offset_attr);
+
+    ctx->base_flow = old_base;
+    ctx->was_mpls = old_was_mpls;
+    ctx->conntracked = old_conntracked;
+    ctx->xin->flow = old_flow;
+
+    /* If the flow translation for the IF_GREATER case requires freezing,
+     * then ctx->exit would be true. Reset to false so that we can
+     * do flow translation for 'IF_LESS_EQUAL' case. finish_freezing()
+     * would have taken care of Undoing the changes done for freeze. */
+    ctx->exit = false;
+
+    offset_attr = nl_msg_start_nested(
+        ctx->odp_actions, OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL);
+    value.u8_val = 0;
+    mf_write_subfield_flow(&check_pkt_larger->dst, &value, &ctx->xin->flow);
+    do_xlate_actions(remaining_acts, remaining_acts_len, ctx, true, false);
+    if (!ctx->freezing) {
+        xlate_action_set(ctx);
+    }
+    if (ctx->freezing) {
+        finish_freezing(ctx);
+    }
+    nl_msg_end_nested(ctx->odp_actions, offset_attr);
+    nl_msg_end_nested(ctx->odp_actions, offset);
+
+    ofpbuf_uninit(&ctx->action_set);
+    ctx->action_set = old_action_set;
+    ofpbuf_uninit(&ctx->stack);
+    ctx->stack = old_stack;
+    ctx->base_flow = old_base;
+    ctx->was_mpls = old_was_mpls;
+    ctx->conntracked = old_conntracked;
+    ctx->xin->flow = old_flow;
+    ctx->exit = true;
 }
 
 static void
@@ -6382,6 +6560,7 @@ recirc_for_mpls(const struct ofpact *a, struct xlate_ctx *ctx)
     case OFPACT_GOTO_TABLE:
     case OFPACT_SLAB:
     case OFPACT_PROBDROP:
+    case OFPACT_CHECK_PKT_LARGER:
     default:
         break;
     }
@@ -6844,6 +7023,19 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
 
         case OFPACT_PROBDROP:
             compose_probdrop_action(ctx, ofpact_get_PROBDROP(a));
+            break;
+        case OFPACT_CHECK_PKT_LARGER: {
+            if (last) {
+                /* If this is last action, then there is no need to
+                 * translate the action. */
+                break;
+            }
+            const struct ofpact *remaining_acts = ofpact_next(a);
+            size_t remaining_acts_len = ofpact_remaining_len(remaining_acts,
+                                                             ofpacts,
+                                                             ofpacts_len);
+            xlate_check_pkt_larger(ctx, ofpact_get_CHECK_PKT_LARGER(a),
+                                   remaining_acts, remaining_acts_len);
             break;
         }
 
@@ -7433,6 +7625,12 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
             && xbridge->has_in_band
             && in_band_must_output_to_local_port(flow)
             && !actions_output_to_local_port(&ctx)) {
+            WC_MASK_FIELD(ctx.wc, nw_proto);
+            WC_MASK_FIELD(ctx.wc, tp_src);
+            WC_MASK_FIELD(ctx.wc, tp_dst);
+            WC_MASK_FIELD(ctx.wc, dl_type);
+            xlate_report(&ctx, OFT_DETAIL, "outputting DHCP packet "
+                         "to local port for in-band control");
             compose_output_action(&ctx, OFPP_LOCAL, NULL, false, false);
         }
 

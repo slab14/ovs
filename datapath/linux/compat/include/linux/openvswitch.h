@@ -375,6 +375,7 @@ enum ovs_key_attr {
 #ifndef __KERNEL__
 	/* Only used within userspace data path. */
 	OVS_KEY_ATTR_PACKET_TYPE,  /* be32 packet type */
+	OVS_KEY_ATTR_ND_EXTENSIONS, /* struct ovs_key_nd_extensions */
 #endif
 
 	__OVS_KEY_ATTR_MAX
@@ -488,6 +489,13 @@ struct ovs_key_nd {
 	__u8	nd_sll[ETH_ALEN];
 	__u8	nd_tll[ETH_ALEN];
 };
+
+#ifndef __KERNEL__
+struct ovs_key_nd_extensions {
+    __be32  nd_reserved;
+    __u8    nd_options_type;
+};
+#endif
 
 #define OVS_CT_LABELS_LEN_32	4
 #define OVS_CT_LABELS_LEN	(OVS_CT_LABELS_LEN_32 * sizeof(__u32))
@@ -855,6 +863,41 @@ enum ovs_nat_attr {
 
 #define OVS_NAT_ATTR_MAX (__OVS_NAT_ATTR_MAX - 1)
 
+/*
+ * enum ovs_check_pkt_len_attr - Attributes for %OVS_ACTION_ATTR_CHECK_PKT_LEN.
+ *
+ * @OVS_CHECK_PKT_LEN_ATTR_PKT_LEN: u16 Packet length to check for.
+ * @OVS_CHECK_PKT_LEN_ATTR_USERSPACE_COND: u8 comparison condition to send
+ * the packet to userspace. One of OVS_CHECK_PKT_LEN_COND_*.
+ * @OVS_CHECK_PKT_LEN_ATTR_USERPACE - Nested OVS_USERSPACE_ATTR_* actions.
+ */
+enum ovs_check_pkt_len_attr {
+	OVS_CHECK_PKT_LEN_ATTR_UNSPEC,
+	OVS_CHECK_PKT_LEN_ATTR_PKT_LEN,
+	OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER,
+	OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL,
+	__OVS_CHECK_PKT_LEN_ATTR_MAX,
+
+#ifdef __KERNEL__
+	OVS_CHECK_PKT_LEN_ATTR_ARG          /* struct check_pkt_len_arg  */
+#endif
+};
+
+#define OVS_CHECK_PKT_LEN_ATTR_MAX (__OVS_CHECK_PKT_LEN_ATTR_MAX - 1)
+
+#ifdef __KERNEL__
+struct check_pkt_len_arg {
+        u16 pkt_len;    /* Same value as OVS_CHECK_PKT_LEN_ATTR_PKT_LEN'. */
+        bool exec_for_greater;  /* When true, actions in IF_GREATE will
+                                 * not change flow keys. False otherwise.
+                                 */
+        bool exec_for_lesser_equal; /* When true, actions in IF_LESS_EQUAL
+                                     * will not change flow keys. False
+                                     * otherwise.
+                                     */
+};
+#endif
+
 /**
  * enum ovs_action_attr - Action types.
  *
@@ -911,6 +954,11 @@ enum ovs_nat_attr {
  * packet, or modify the packet (e.g., change the DSCP field).
  * @OVS_ACTION_ATTR_SLAB: Modify packet data.
  * @OVS_ACTION_ATTR_PROBDROP: Probabilistically drop packets.
+ * @OVS_ACTION_ATTR_CLONE: make a copy of the packet and execute a list of
+ * actions without affecting the original packet and key.
+ * @OVS_ACTION_ATTR_CHECK_PKT_LEN: Check the packet length and execute a set
+ * of actions if greater than the specified packet length, else execute
+ * another set of actions.
  */
 
 enum ovs_action_attr {
@@ -940,11 +988,12 @@ enum ovs_action_attr {
 
         OVS_ACTION_ATTR_SLAB,         /* No argument. */
         OVS_ACTION_ATTR_PROBDROP,     /* u32 probability. */
+	OVS_ACTION_ATTR_CLONE,        /* Nested OVS_CLONE_ATTR_*.  */
+	OVS_ACTION_ATTR_CHECK_PKT_LEN, /* Nested OVS_CHECK_PKT_LEN_ATTR_*. */
 
 #ifndef __KERNEL__
 	OVS_ACTION_ATTR_TUNNEL_PUSH,   /* struct ovs_action_push_tnl*/
 	OVS_ACTION_ATTR_TUNNEL_POP,    /* u32 port number. */
-	OVS_ACTION_ATTR_CLONE,         /* Nested OVS_CLONE_ATTR_*.  */
 #endif
 
 	__OVS_ACTION_ATTR_MAX,	      /* Nothing past this will be accepted
@@ -1038,5 +1087,10 @@ struct ovs_zone_limit {
 	__u32 limit;
 	__u32 count;
 };
+
+#define OVS_CLONE_ATTR_EXEC      0   /* Specify an u32 value. When nonzero,
+				      * actions in clone will not change flow
+				      * keys. False otherwise.
+				      */
 
 #endif /* _LINUX_OPENVSWITCH_H */

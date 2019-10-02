@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2017 Nicira, Inc.
+ * Copyright (c) 2008-2018 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,6 +38,7 @@
 #include "fat-rwlock.h"
 #include "flow.h"
 #include "netdev-linux.h"
+#include "netdev-offload.h"
 #include "netdev-provider.h"
 #include "netdev-vport.h"
 #include "netdev.h"
@@ -1362,16 +1363,6 @@ dpif_netlink_init_flow_del(struct dpif_netlink *dpif,
                                  del->ufid, del->terse, request);
 }
 
-enum {
-    DUMP_OVS_FLOWS_BIT    = 0,
-    DUMP_NETDEV_FLOWS_BIT = 1,
-};
-
-enum {
-    DUMP_OVS_FLOWS    = (1 << DUMP_OVS_FLOWS_BIT),
-    DUMP_NETDEV_FLOWS = (1 << DUMP_NETDEV_FLOWS_BIT),
-};
-
 struct dpif_netlink_flow_dump {
     struct dpif_flow_dump up;
     struct nl_dump nl_dump;
@@ -1380,7 +1371,7 @@ struct dpif_netlink_flow_dump {
     int netdev_dumps_num;                    /* Number of netdev_flow_dumps */
     struct ovs_mutex netdev_lock;            /* Guards the following. */
     int netdev_current_dump OVS_GUARDED;     /* Shared current dump */
-    int type;                                /* Type of dump */
+    struct dpif_flow_dump_types types;       /* Type of dump */
 };
 
 static struct dpif_netlink_flow_dump *
@@ -1395,7 +1386,7 @@ start_netdev_dump(const struct dpif *dpif_,
 {
     ovs_mutex_init(&dump->netdev_lock);
 
-    if (!(dump->type & DUMP_NETDEV_FLOWS)) {
+    if (!(dump->types.netdev_flows)) {
         dump->netdev_dumps_num = 0;
         dump->netdev_dumps = NULL;
         return;
@@ -1409,24 +1400,21 @@ start_netdev_dump(const struct dpif *dpif_,
     ovs_mutex_unlock(&dump->netdev_lock);
 }
 
-static int
-dpif_netlink_get_dump_type(char *str) {
-    int type = 0;
-
-    if (!str || !strcmp(str, "ovs") || !strcmp(str, "dpctl")) {
-        type |= DUMP_OVS_FLOWS;
+static void
+dpif_netlink_populate_flow_dump_types(struct dpif_netlink_flow_dump *dump,
+                                      struct dpif_flow_dump_types *types)
+{
+    if (!types) {
+        dump->types.ovs_flows = true;
+        dump->types.netdev_flows = true;
+    } else {
+        memcpy(&dump->types, types, sizeof *types);
     }
-    if ((netdev_is_flow_api_enabled() && !str)
-        || (str && (!strcmp(str, "offloaded") || !strcmp(str, "dpctl")))) {
-        type |= DUMP_NETDEV_FLOWS;
-    }
-
-    return type;
 }
 
 static struct dpif_flow_dump *
 dpif_netlink_flow_dump_create(const struct dpif *dpif_, bool terse,
-                              char *type)
+                              struct dpif_flow_dump_types *types)
 {
     const struct dpif_netlink *dpif = dpif_netlink_cast(dpif_);
     struct dpif_netlink_flow_dump *dump;
@@ -1436,9 +1424,9 @@ dpif_netlink_flow_dump_create(const struct dpif *dpif_, bool terse,
     dump = xmalloc(sizeof *dump);
     dpif_flow_dump_init(&dump->up, dpif_);
 
-    dump->type = dpif_netlink_get_dump_type(type);
+    dpif_netlink_populate_flow_dump_types(dump, types);
 
-    if (dump->type & DUMP_OVS_FLOWS) {
+    if (dump->types.ovs_flows) {
         dpif_netlink_flow_init(&request);
         request.cmd = OVS_FLOW_CMD_GET;
         request.dp_ifindex = dpif->dp_ifindex;
@@ -1465,7 +1453,7 @@ dpif_netlink_flow_dump_destroy(struct dpif_flow_dump *dump_)
     unsigned int nl_status = 0;
     int dump_status;
 
-    if (dump->type & DUMP_OVS_FLOWS) {
+    if (dump->types.ovs_flows) {
         nl_status = nl_dump_done(&dump->nl_dump);
     }
 
@@ -1609,7 +1597,7 @@ dpif_netlink_netdev_match_to_dpif_flow(struct match *match,
         .flow = &match->flow,
         .mask = &match->wc.masks,
         .support = {
-            .max_vlan_headers = 1,
+            .max_vlan_headers = 2,
         },
     };
     size_t offset;
@@ -1701,7 +1689,7 @@ dpif_netlink_flow_dump_next(struct dpif_flow_dump_thread *thread_,
         }
     }
 
-    if (!(dump->type & DUMP_OVS_FLOWS)) {
+    if (!(dump->types.ovs_flows)) {
         return n_flows;
     }
 
@@ -2004,6 +1992,7 @@ parse_flow_put(struct dpif_netlink *dpif, struct dpif_flow_put *put)
     struct netdev *dev;
     struct offload_info info;
     ovs_be16 dst_port = 0;
+    uint8_t csum_on = false;
     int err;
 
     if (put->flags & DPIF_FP_PROBE) {
@@ -2039,12 +2028,16 @@ parse_flow_put(struct dpif_netlink *dpif, struct dpif_flow_put *put)
             if (tnl_cfg && tnl_cfg->dst_port != 0) {
                 dst_port = tnl_cfg->dst_port;
             }
+            if (tnl_cfg) {
+                csum_on = tnl_cfg->csum;
+            }
             netdev_close(outdev);
         }
     }
 
     info.dpif_class = dpif_class;
     info.tp_dst_port = dst_port;
+    info.tunnel_csum_on = csum_on;
     err = netdev_flow_put(dev, &match,
                           CONST_CAST(struct nlattr *, put->actions),
                           put->actions_len,
@@ -2070,7 +2063,26 @@ parse_flow_put(struct dpif_netlink *dpif, struct dpif_flow_put *put)
 
         VLOG_DBG("added flow");
     } else if (err != EEXIST) {
-        VLOG_ERR_RL(&rl, "failed to offload flow: %s", ovs_strerror(err));
+        struct netdev *oor_netdev = NULL;
+        enum vlog_level level;
+        if (err == ENOSPC && netdev_is_offload_rebalance_policy_enabled()) {
+            /*
+             * We need to set OOR on the input netdev (i.e, 'dev') for the
+             * flow. But if the flow has a tunnel attribute (i.e, decap action,
+             * with a virtual device like a VxLAN interface as its in-port),
+             * then lookup and set OOR on the underlying tunnel (real) netdev.
+             */
+            oor_netdev = flow_get_tunnel_netdev(&match.flow.tunnel);
+            if (!oor_netdev) {
+                /* Not a 'tunnel' flow */
+                oor_netdev = dev;
+            }
+            netdev_set_hw_info(oor_netdev, HW_INFO_TYPE_OOR, true);
+        }
+        level = (err == ENOSPC || err == EOPNOTSUPP) ? VLL_DBG : VLL_ERR;
+        VLOG_RL(&rl, level, "failed to offload flow: %s: %s",
+                ovs_strerror(err),
+                (oor_netdev ? oor_netdev->name : dev->name));
     }
 
 out:
@@ -2157,7 +2169,8 @@ dpif_netlink_operate_chunks(struct dpif_netlink *dpif, struct dpif_op **ops,
 }
 
 static void
-dpif_netlink_operate(struct dpif *dpif_, struct dpif_op **ops, size_t n_ops)
+dpif_netlink_operate(struct dpif *dpif_, struct dpif_op **ops, size_t n_ops,
+                     enum dpif_offload_type offload_type)
 {
     struct dpif_netlink *dpif = dpif_netlink_cast(dpif_);
     struct dpif_op *new_ops[OPERATE_MAX_OPS];
@@ -2165,7 +2178,12 @@ dpif_netlink_operate(struct dpif *dpif_, struct dpif_op **ops, size_t n_ops)
     int i = 0;
     int err = 0;
 
-    if (netdev_is_flow_api_enabled()) {
+    if (offload_type == DPIF_OFFLOAD_ALWAYS && !netdev_is_flow_api_enabled()) {
+        VLOG_DBG("Invalid offload_type: %d", offload_type);
+        return;
+    }
+
+    if (offload_type != DPIF_OFFLOAD_NEVER && netdev_is_flow_api_enabled()) {
         while (n_ops > 0) {
             count = 0;
 
@@ -2174,6 +2192,23 @@ dpif_netlink_operate(struct dpif *dpif_, struct dpif_op **ops, size_t n_ops)
 
                 err = try_send_to_netdev(dpif, op);
                 if (err && err != EEXIST) {
+                    if (offload_type == DPIF_OFFLOAD_ALWAYS) {
+                        /* We got an error while offloading an op. Since
+                         * OFFLOAD_ALWAYS is specified, we stop further
+                         * processing and return to the caller without
+                         * invoking kernel datapath as fallback. But the
+                         * interface requires us to process all n_ops; so
+                         * return the same error in the remaining ops too.
+                         */
+                        op->error = err;
+                        n_ops--;
+                        while (n_ops > 0) {
+                            op = ops[i++];
+                            op->error = err;
+                            n_ops--;
+                        }
+                        return;
+                    }
                     new_ops[count++] = op;
                 } else {
                     op->error = err;
@@ -2184,7 +2219,7 @@ dpif_netlink_operate(struct dpif *dpif_, struct dpif_op **ops, size_t n_ops)
 
             dpif_netlink_operate_chunks(dpif, new_ops, count);
         }
-    } else {
+    } else if (offload_type != DPIF_OFFLOAD_ALWAYS) {
         dpif_netlink_operate_chunks(dpif, ops, n_ops);
     }
 }
@@ -3344,6 +3379,7 @@ probe_broken_meters(struct dpif *dpif)
 
 const struct dpif_class dpif_netlink_class = {
     "system",
+    false,                      /* cleanup_required */
     NULL,                       /* init */
     dpif_netlink_enumerate,
     NULL,
@@ -3393,6 +3429,13 @@ const struct dpif_class dpif_netlink_class = {
     dpif_netlink_ct_set_limits,
     dpif_netlink_ct_get_limits,
     dpif_netlink_ct_del_limits,
+    NULL,                       /* ipf_set_enabled */
+    NULL,                       /* ipf_set_min_frag */
+    NULL,                       /* ipf_set_max_nfrags */
+    NULL,                       /* ipf_get_status */
+    NULL,                       /* ipf_dump_start */
+    NULL,                       /* ipf_dump_next */
+    NULL,                       /* ipf_dump_done */
     dpif_netlink_meter_get_features,
     dpif_netlink_meter_set,
     dpif_netlink_meter_get,

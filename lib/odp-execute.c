@@ -198,7 +198,7 @@ odp_set_sctp(struct dp_packet *packet, const struct ovs_key_sctp *key,
 static void
 odp_set_tunnel_action(const struct nlattr *a, struct flow_tnl *tun_key)
 {
-    ovs_assert(odp_tun_key_from_attr(a, tun_key) != ODP_FIT_ERROR);
+    ovs_assert(odp_tun_key_from_attr(a, tun_key, NULL) != ODP_FIT_ERROR);
 }
 
 static void
@@ -225,6 +225,23 @@ set_arp(struct dp_packet *packet, const struct ovs_key_arp *key,
         put_16aligned_be32(&arp->ar_tpa,
                            key->arp_tip | (ar_tpa & ~mask->arp_tip));
     }
+}
+
+static void
+odp_set_nd_ext(struct dp_packet *packet, const struct ovs_key_nd_extensions
+        *key, const struct ovs_key_nd_extensions *mask)
+{
+    const struct ovs_nd_msg *ns = dp_packet_l4(packet);
+    ovs_16aligned_be32 reserved = ns->rso_flags;
+    uint8_t opt_type = ns->options[0].type;
+
+    if (mask->nd_reserved) {
+        put_16aligned_be32(&reserved, key->nd_reserved);
+    }
+    if (mask->nd_options_type) {
+        opt_type = key->nd_options_type;
+    }
+    packet_set_nd_ext(packet, reserved, opt_type);
 }
 
 static void
@@ -280,9 +297,9 @@ odp_set_nsh(struct dp_packet *packet, const struct nlattr *a, bool has_mask)
     ovs_be32 path_hdr;
 
     if (has_mask) {
-        odp_nsh_key_from_attr(a, &key, &mask);
+        odp_nsh_key_from_attr(a, &key, &mask, NULL);
     } else {
-        odp_nsh_key_from_attr(a, &key, NULL);
+        odp_nsh_key_from_attr(a, &key, NULL, NULL);
     }
 
     if (!has_mask) {
@@ -438,6 +455,16 @@ odp_execute_set_action(struct dp_packet *packet, const struct nlattr *a)
         }
         break;
 
+    case OVS_KEY_ATTR_ND_EXTENSIONS:
+        if (OVS_LIKELY(dp_packet_get_nd_payload(packet))) {
+            const struct ovs_key_nd_extensions *nd_ext_key
+                 = nl_attr_get_unspec(a, sizeof(struct ovs_key_nd_extensions));
+            ovs_16aligned_be32 rso_flags;
+            put_16aligned_be32(&rso_flags, nd_ext_key->nd_reserved);
+            packet_set_nd_ext(packet, rso_flags, nd_ext_key->nd_options_type);
+        }
+        break;
+
     case OVS_KEY_ATTR_DP_HASH:
         md->dp_hash = nl_attr_get_u32(a);
         break;
@@ -538,6 +565,11 @@ odp_execute_masked_set_action(struct dp_packet *packet,
     case OVS_KEY_ATTR_ND:
         odp_set_nd(packet, nl_attr_get(a),
                    get_mask(a, struct ovs_key_nd));
+        break;
+
+    case OVS_KEY_ATTR_ND_EXTENSIONS:
+        odp_set_nd_ext(packet, nl_attr_get(a),
+                       get_mask(a, struct ovs_key_nd_extensions));
         break;
 
     case OVS_KEY_ATTR_DP_HASH:
@@ -642,6 +674,49 @@ odp_execute_clone(void *dp, struct dp_packet_batch *batch, bool steal,
     }
 }
 
+static void
+odp_execute_check_pkt_len(void *dp, struct dp_packet *packet, bool steal,
+                          const struct nlattr *action,
+                          odp_execute_cb dp_execute_action)
+{
+    static const struct nl_policy ovs_cpl_policy[] = {
+        [OVS_CHECK_PKT_LEN_ATTR_PKT_LEN] = { .type = NL_A_U16 },
+        [OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER] = { .type = NL_A_NESTED },
+        [OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL]
+            = { .type = NL_A_NESTED },
+    };
+    struct nlattr *attrs[ARRAY_SIZE(ovs_cpl_policy)];
+
+    if (!nl_parse_nested(action, ovs_cpl_policy, attrs, ARRAY_SIZE(attrs))) {
+        OVS_NOT_REACHED();
+    }
+
+    const struct nlattr *a;
+    struct dp_packet_batch pb;
+
+    a = attrs[OVS_CHECK_PKT_LEN_ATTR_PKT_LEN];
+    bool is_greater = dp_packet_size(packet) > nl_attr_get_u16(a);
+    if (is_greater) {
+        a = attrs[OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER];
+    } else {
+        a = attrs[OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL];
+    }
+
+    if (!steal) {
+        /* The 'subactions' may modify the packet, but the modification
+         * should not propagate beyond this action. Make a copy
+         * the packet in case we don't own the packet, so that the
+         * 'subactions' are only applid to check_pkt_len. 'odp_execute_actions'
+         * will free the clone.  */
+        packet = dp_packet_clone(packet);
+    }
+    /* If nl_attr_get(a) is NULL, the packet will be freed by
+     * odp_execute_actions. */
+    dp_packet_batch_init_packet(&pb, packet);
+    odp_execute_actions(dp, &pb, true, nl_attr_get(a), nl_attr_get_size(a),
+                        dp_execute_action);
+}
+
 static bool
 requires_datapath_assistance(const struct nlattr *a)
 {
@@ -675,6 +750,7 @@ requires_datapath_assistance(const struct nlattr *a)
     case OVS_ACTION_ATTR_CT_CLEAR:
     case OVS_ACTION_ATTR_PROBDROP:      
     case OVS_ACTION_ATTR_SLAB:
+    case OVS_ACTION_ATTR_CHECK_PKT_LEN:
         return false;
 
     case OVS_ACTION_ATTR_UNSPEC:
@@ -719,7 +795,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
 
                 dp_execute_action(dp, batch, a, should_steal);
 
-                if (last_action || batch->count == 0) {
+                if (last_action || dp_packet_batch_is_empty(batch)) {
                     /* We do not need to free the packets.
                      * Either dp_execute_actions() has stolen them
                      * or the batch is freed due to errors. In either
@@ -926,6 +1002,18 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             }
             break;
         }
+        case OVS_ACTION_ATTR_CHECK_PKT_LEN:
+            DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
+                odp_execute_check_pkt_len(dp, packet, steal && last_action, a,
+                                          dp_execute_action);
+            }
+
+            if (last_action) {
+                /* We do not need to free the packets.
+                 * odp_execute_check_pkt_len() has stolen them. */
+                return;
+            }
+            break;
 
         case OVS_ACTION_ATTR_OUTPUT:
         case OVS_ACTION_ATTR_TUNNEL_PUSH:

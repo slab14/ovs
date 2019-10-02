@@ -70,6 +70,23 @@
       <dd>
         Causes <code>ovn-northd</code> to gracefully terminate.
       </dd>
+
+      <dt><code>pause</code></dt>
+      <dd>
+        Pauses the ovn-northd operation from processing any Northbound and
+        Southbound database changes.
+      </dd>
+
+      <dt><code>resume</code></dt>
+      <dd>
+        Resumes the ovn-northd operation to process Northbound and
+        Southbound database contents and generate logical flows.
+      </dd>
+
+      <dt><code>is-paused</code></dt>
+      <dd>
+        Returns "true" if ovn-northd is currently paused, "false" otherwise.
+      </dd>
       </dl>
     </p>
 
@@ -80,6 +97,37 @@
       If multiple instances of <code>ovn-northd</code> are running and the
       active <code>ovn-northd</code> fails, one of the hot standby instances
       of <code>ovn-northd</code> will automatically take over.
+    </p>
+
+    <h2> Active-Standby with multiple OVN DB servers</h2>
+    <p>
+      You may run multiple OVN DB servers in an OVN deployment with:
+      <ul>
+        <li>
+          OVN DB servers deployed in active/passive mode with one active
+          and multiple passive ovsdb-servers.
+        </li>
+
+        <li>
+          <code>ovn-northd</code> also deployed on all these nodes,
+          using unix ctl sockets to connect to the local OVN DB servers.
+        </li>
+      </ul>
+    </p>
+
+    <p>
+      In such deployments, the ovn-northds on the passive nodes will process
+      the DB changes and compute logical flows to be thrown out later,
+      because write transactions are not allowed by the passive ovsdb-servers.
+      It results in unnecessary CPU usage.
+    </p>
+
+    <p>
+      With the help of runtime management command <code>pause</code>, you can
+      pause <code>ovn-northd</code> on these nodes. When a passive node
+      becomes master, you can use the runtime management command
+      <code>resume</code> to resume the <code>ovn-northd</code> to process the
+      DB changes.
     </p>
 
     <h1>Logical Flow Table Structure</h1>
@@ -341,7 +389,7 @@
       </li>
 
       <li>
-        A priority-65535 flow that drops all trafic in the reply direction
+        A priority-65535 flow that drops all traffic in the reply direction
         with <code>ct_label.blocked</code> set meaning that the connection
         should no longer be allowed due to a policy change.  Packets
         in the request direction are skipped here to let a newly created
@@ -521,6 +569,34 @@
 
       <li>
         <p>
+          If inport <code>V</code> is of type <code>virtual</code> adds a
+          priority-100 logical flow for each <var>P</var> configured in the
+          <ref table="Logical_Switch_Port" column="options:virtual-parents"/>
+          column with the match
+        </p>
+        <pre>
+<code>inport == <var>P</var> &amp;&amp; !is_chassis_resident(<var>V</var>) &amp;&amp; ((arp.op == 1 &amp;&amp; arp.spa == <var>VIP</var> &amp;&amp; arp.tpa == <var>VIP</var>) || (arp.op == 2 &amp;&amp; arp.spa == <var>VIP</var>))</code>
+        </pre>
+
+        <p>
+          and applies the action
+        </p>
+        <pre>
+<code>bind_vport(<var>V</var>, inport);</code>
+        </pre>
+
+        <p>
+         and advances the packet to the next table.
+        </p>
+
+        <p>
+          Where <var>VIP</var> is the virtual ip configured in the column
+          <ref table="Logical_Switch_Port" column="options:virtual-ip"/>.
+        </p>
+      </li>
+
+      <li>
+        <p>
           Priority-50 flows that match ARP requests to each known IP address
           <var>A</var> of every logical switch port, and respond with ARP
           replies directly with corresponding Ethernet address <var>E</var>:
@@ -541,7 +617,8 @@ output;
 
         <p>
           These flows are omitted for logical ports (other than router ports or
-          <code>localport</code> ports) that are down.
+          <code>localport</code> ports) that are down and for logical ports of
+          type <code>virtual</code>.
         </p>
       </li>
 
@@ -588,7 +665,8 @@ nd_na_router {
 
         <p>
           These flows are omitted for logical ports (other than router ports or
-          <code>localport</code> ports) that are down.
+          <code>localport</code> ports) that are down and for logical ports of
+          type <code>virtual</code>.
         </p>
       </li>
 
@@ -626,7 +704,8 @@ nd_na_router {
     <p>
       This table adds the DHCPv4 options to a DHCPv4 packet from the
       logical ports configured with IPv4 address(es) and DHCPv4 options,
-      and similarly for DHCPv6 options.
+      and similarly for DHCPv6 options. This table also adds flows for the
+      logical ports of type <code>external</code>.
     </p>
 
     <ul>
@@ -827,7 +906,39 @@ output;
       </li>
     </ul>
 
-    <h3>Ingress Table 16 Destination Lookup</h3>
+    <h3>Ingress table 16 External ports</h3>
+
+    <p>
+      Traffic from the <code>external</code> logical ports enter the ingress
+      datapath pipeline via the <code>localnet</code> port. This table adds the
+      below logical flows to handle the traffic from these ports.
+    </p>
+
+    <ul>
+      <li>
+        <p>
+          A priority-100 flow is added for each <code>external</code> logical
+          port which doesn't reside on a chassis to drop the ARP/IPv6 NS
+          request to the router IP(s) (of the logical switch) which matches
+          on the <code>inport</code> of the <code>external</code> logical port
+          and the valid <code>eth.src</code> address(es) of the
+          <code>external</code> logical port.
+        </p>
+
+        <p>
+          This flow guarantees that the ARP/NS request to the router IP
+          address from the external ports is responded by only the chassis
+          which has claimed these external ports. All the other chassis,
+          drops these packets.
+        </p>
+      </li>
+
+      <li>
+        A priority-0 flow that matches all packets to advances to table 17.
+      </li>
+    </ul>
+
+    <h3>Ingress Table 17 Destination Lookup</h3>
 
     <p>
       This table implements switching behavior.  It contains these logical
@@ -872,6 +983,25 @@ output;
             lookup on the chassis where
             <ref column="logical_port" table="NAT" db="OVN_Northbound"/> is
             resident.
+          </li>
+        </ul>
+
+        <p>
+          For the Ethernet address on a logical switch port of type
+          <code>router</code>, when that logical switch port's
+          <ref column="addresses" table="Logical_Switch_Port"
+          db="OVN_Northbound"/> column is set to <code>router</code> and
+          the connected logical router port specifies a
+          <code>reside-on-redirect-chassis</code> and the logical router
+          to which the connected logical router port belongs to has a
+          <code>redirect-chassis</code> distributed gateway logical router
+          port:
+        </p>
+
+        <ul>
+          <li>
+            The flow for the connected logical router port's Ethernet
+            address is only programmed on the <code>redirect-chassis</code>.
           </li>
         </ul>
       </li>
@@ -1178,6 +1308,28 @@ output;
           of multiple ARP responses from different chassis, and allows
           upstream MAC learning to point to the
           <code>redirect-chassis</code>.
+        </p>
+
+        <p>
+          For the logical router port with the option
+          <code>reside-on-redirect-chassis</code> set (which is centralized),
+          the above flows are only programmed on the gateway port instance on
+          the <code>redirect-chassis</code> (if the logical router has a
+          distributed gateway port). This behavior avoids generation
+          of multiple ARP responses from different chassis, and allows
+          upstream MAC learning to point to the
+          <code>redirect-chassis</code>.
+        </p>
+      </li>
+
+      <li>
+        <p>
+          These flows handles ARP requests not for router's own IP address.
+          They use the SPA and SHA to populate the logical router port's
+          mac binding table, with priority 80.  The typical use case of
+          these flows are GARP requests handling.  For the gateway port
+          on a distributed logical router, these flows are only programmed
+          on the gateway port instance on the <code>redirect-chassis</code>.
         </p>
       </li>
 
@@ -1801,6 +1953,44 @@ output;
       <li>
         <p>
           For distributed logical routers where one of the logical router
+          ports specifies a <code>redirect-chassis</code>, a priority-400
+          logical flow for each ip source/destination couple that matches the
+          <code>dnat_and_snat</code> NAT rules configured. These flows will
+          allow to properly forward traffic to the external connections if
+          available and avoid sending it through the tunnel.
+          Assuming the two following NAT rules have been configured:
+        </p>
+
+        <pre>
+external_ip{0,1} = <var>EIP{0,1}</var>;
+external_mac{0,1} = <var>MAC{0,1}</var>;
+logical_ip{0,1} = <var>LIP{0,1}</var>;
+        </pre>
+
+        <p>
+            the following action will be applied:
+        </p>
+
+        <pre>
+eth.dst = <var>MAC0</var>;
+eth.src = <var>MAC1</var>;
+reg0 = ip4.dst;
+reg1 = <var>EIP1</var>;
+outport = <code>redirect-chassis-port</code>;
+<code>REGBIT_DISTRIBUTED_NAT = 1; next;</code>.
+        </pre>
+
+        <p>
+            Morover a priority-400 logical flow is configured for each
+            <code>dnat_and_snat</code> NAT rule configured in order to
+            not send traffic for local FIP through the overlay tunnels
+            but manage it in the local hypervisor
+        </p>
+      </li>
+
+      <li>
+        <p>
+          For distributed logical routers where one of the logical router
           ports specifies a <code>redirect-chassis</code>, a priority-300
           logical flow with match <code>REGBIT_NAT_REDIRECT == 1</code> has
           actions <code>ip.ttl--; next;</code>.  The <code>outport</code>
@@ -1896,6 +2086,12 @@ next;
       <li>
         <p>
           For distributed logical routers where one of the logical router
+          ports specifies a <code>redirect-chassis</code>, a priority-400
+          logical flow with match <code>REGBIT_DISTRIBUTED_NAT == 1</code>
+          has action <code>next;</code>
+        </p>
+        <p>
+          For distributed logical routers where one of the logical router
           ports specifies a <code>redirect-chassis</code>, a priority-200
           logical flow with match <code>REGBIT_NAT_REDIRECT == 1</code> has
           actions <code>eth.dst = <var>E</var>; next;</code>, where
@@ -1922,6 +2118,33 @@ next;
           priority-100 flow with match <code>outport === <var>P</var>
           &amp;&amp; reg0 == <var>A</var></code> has actions
           <code>eth.dst = <var>E</var>; next;</code>.
+        </p>
+
+        <p>
+          For each virtual ip <var>A</var> configured on a logical port
+          of type <code>virtual</code> and its virtual parent set in
+          its corresponding <ref db="OVN_Southbound" table="Port_Binding"/>
+          record and the virtual parent with the Ethernet address <var>E</var>
+          and the virtual ip is reachable via the router port <var>P</var>, a
+          priority-100 flow with match <code>outport === <var>P</var>
+          &amp;&amp; reg0 == <var>A</var></code> has actions
+          <code>eth.dst = <var>E</var>; next;</code>.
+        </p>
+
+        <p>
+          For each virtual ip <var>A</var> configured on a logical port
+          of type <code>virtual</code> and its virtual parent <code>not</code>
+          set in its corresponding
+          <ref db="OVN_Southbound" table="Port_Binding"/>
+          record and the virtual ip <var>A</var> is reachable via the
+          router port <var>P</var>, a
+          priority-100 flow with match <code>outport === <var>P</var>
+          &amp;&amp; reg0 == <var>A</var></code> has actions
+          <code>eth.dst = <var>00:00:00:00:00:00</var>; next;</code>.
+          This flow is added so that the ARP is always resolved for the
+          virtual ip <var>A</var> by generating ARP request and
+          <code>not</code> consulting the MAC_Binding table as it can have
+          incorrect value for the virtual ip <var>A</var>.
         </p>
 
         <p>
@@ -1972,7 +2195,86 @@ next;
       </li>
     </ul>
 
-    <h3>Ingress Table 9: Gateway Redirect</h3>
+    <h3>Ingress Table 9: Check packet length</h3>
+
+    <p>
+      For distributed logical routers with distributed gateway port configured
+      with <code>options:gateway_mtu</code> to a valid integer value, this
+      table adds a priority-50 logical flow with the match
+      <code>ip4 &amp;&amp; outport == <var>GW_PORT</var></code> where
+      <var>GW_PORT</var> is the distributed gateway router port and applies the
+      action <code>check_pkt_larger</code> and advances the packet to the
+      next table.
+    </p>
+
+    <pre>
+REGBIT_PKT_LARGER = check_pkt_larger(<var>L</var>); next;
+    </pre>
+
+    <p>
+      where <var>L</var> is the packet length to check for. If the packet
+      is larger than <var>L</var>, it stores 1 in the register bit
+      <code>REGBIT_PKT_LARGER</code>. The value of
+      <var>L</var> is taken from <ref column="options:gateway_mtu"
+      table="Logical_Router_Port" db="OVN_Northbound"/> column of
+      <ref table="Logical_Router_Port" db="OVN_Northbound"/> row.
+    </p>
+
+    <p>
+      This table adds one priority-0 fallback flow that matches all packets
+      and advances to the next table.
+    </p>
+
+    <h3>Ingress Table 10: Handle larger packets</h3>
+
+    <p>
+      For distributed logical routers with distributed gateway port configured
+      with <code>options:gateway_mtu</code> to a valid integer value, this
+      table adds the following priority-50 logical flow for each
+      logical router port with the match <code>ip4 &amp;&amp;
+      inport == <var>LRP</var> &amp;&amp; outport == <var>GW_PORT</var>
+      &amp;&amp; REGBIT_PKT_LARGER</code>, where <var>LRP</var> is the logical
+      router port and <var>GW_PORT</var> is the distributed gateway router port
+      and applies the following action
+    </p>
+
+    <pre>
+icmp4 {
+    icmp4.type = 3; /* Destination Unreachable. */
+    icmp4.code = 4;  /* Frag Needed and DF was Set. */
+    icmp4.frag_mtu = <var>M</var>;
+    eth.dst = <var>E</var>;
+    ip4.dst = ip4.src;
+    ip4.src = <var>I</var>;
+    ip.ttl = 255;
+    REGBIT_EGRESS_LOOPBACK = 1;
+    next(pipeline=ingress, table=0);
+};
+    </pre>
+
+    <ul>
+      <li>
+        Where <var>M</var> is the (fragment MTU - 58) whose value is taken from
+        <ref column="options:gateway_mtu" table="Logical_Router_Port"
+        db="OVN_Northbound"/> column of
+        <ref table="Logical_Router_Port" db="OVN_Northbound"/> row.
+      </li>
+
+      <li>
+        <var>E</var> is the Ethernet address of the logical router port.
+      </li>
+
+      <li>
+        <var>I</var> is the IPv4 address of the logical router port.
+      </li>
+    </ul>
+
+    <p>
+      This table adds one priority-0 fallback flow that matches all packets
+      and advances to the next table.
+    </p>
+
+    <h3>Ingress Table 11: Gateway Redirect</h3>
 
     <p>
       For distributed logical routers where one of the logical router
@@ -1982,6 +2284,11 @@ next;
     </p>
 
     <ul>
+      <li>
+        A priority-300 logical flow with match
+        <code>REGBIT_DISTRIBUTED_NAT == 1</code> has action
+        <code>next;</code>
+      </li>
       <li>
         A priority-200 logical flow with match
         <code>REGBIT_NAT_REDIRECT == 1</code> has actions
@@ -2029,7 +2336,7 @@ next;
       </li>
     </ul>
 
-    <h3>Ingress Table 10: ARP Request</h3>
+    <h3>Ingress Table 12: ARP Request</h3>
 
     <p>
       In the common case where the Ethernet destination has been resolved, this
@@ -2237,7 +2544,8 @@ nd_ns {
         <p>
           If the NAT rule cannot be handled in a distributed manner, then
           the flow above is only programmed on the
-          <code>redirect-chassis</code>.
+          <code>redirect-chassis</code> increasing flow priority by 128 in
+          order to be run first
         </p>
 
         <p>
@@ -2291,6 +2599,15 @@ nd_ns {
 
     <ul>
       <li>
+        <p>
+          For each <code>dnat_and_snat</code> NAT rule couple in the
+          OVN Northbound database on a distributed router,
+          a priority-200 logical with match
+          <code>ip4.dst == <var>external_ip0</var> &amp;&amp;
+          ip4.src == <var>external_ip1</var></code>, has action
+          <code>next;</code>
+        </p>
+
         <p>
           For each NAT rule in the OVN Northbound database on a
           distributed router, a priority-100 logical flow with match

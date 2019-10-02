@@ -162,8 +162,10 @@ struct ofport {
     uint64_t change_seq;
     long long int created;      /* Time created, in msec. */
     int mtu;
+    bool may_enable;            /* May be live (OFPPS_LIVE) if link is up. */
 };
 
+void ofproto_port_set_enable(struct ofport *, bool enable);
 void ofproto_port_set_state(struct ofport *, enum ofputil_port_state);
 
 /* OpenFlow table flags:
@@ -219,6 +221,7 @@ struct oftable {
     enum oftable_flags flags;
     struct classifier cls;      /* Contains "struct rule"s. */
     char *name;                 /* Table name exposed via OpenFlow, or NULL. */
+    int name_level;             /* 0=name unset, 1=via OF, 2=via OVSDB. */
 
     /* Maximum number of flows or UINT_MAX if there is no limit besides any
      * limit imposed by resource limitations. */
@@ -932,6 +935,24 @@ struct ofproto_class {
                          struct ofputil_table_features *features,
                          struct ofputil_table_stats *stats);
 
+    /* Helper for the OFPT_TABLE_FEATURES request.
+     *
+     * A controller is requesting that the table features be updated from 'old'
+     * to 'new', where 'old' is the features currently in use as previously
+     * initialized by 'query_tables'.
+     *
+     * If this function is nonnull, then it should either update the table
+     * features or return an OpenFlow error.  The update should be
+     * all-or-nothing.
+     *
+     * If this function is null, then only updates that eliminate table
+     * features will be allowed.  Such updates have no actual effect.  This
+     * implementation is acceptable because OpenFlow says that a table's
+     * features may be a superset of those requested. */
+    enum ofperr (*modify_tables)(struct ofproto *ofproto,
+                                 const struct ofputil_table_features *old,
+                                 const struct ofputil_table_features *new);
+
     /* Sets the current tables version the provider should use for classifier
      * lookups.  This must be called with a new version number after each set
      * of flow table changes has been completed, so that datapath revalidation
@@ -1055,6 +1076,17 @@ struct ofproto_class {
     int (*port_get_stats)(const struct ofport *port,
                           struct netdev_stats *stats);
 
+    /* Get status of the virtual port (ex. tunnel, patch).
+     *
+     * Returns '0' if 'port' is not a virtual port or has no errors.
+     * Otherwise, stores the error string in '*errp' and returns positive errno
+     * value. The caller is responsible for freeing '*errp' (with free()).
+     *
+     * This function may be a null pointer if the ofproto implementation does
+     * not support any virtual ports or their states.
+     */
+    int (*vport_get_status)(const struct ofport *port, char **errp);
+
     /* Port iteration functions.
      *
      * The client might not be entirely in control of the ports within an
@@ -1107,12 +1139,12 @@ struct ofproto_class {
      *         if (error) {
      *             break;
      *         }
-     *         // Do something with 'port' here (without modifying or freeing
-     *         // any of its data).
+     *         ...Do something with 'port' here (without modifying or freeing
+     *            any of its data)...
      *     }
      *     ofproto->ofproto_class->port_dump_done(ofproto, state);
      * }
-     * // 'error' is now EOF (success) or a positive errno value (failure).
+     * ...'error' is now EOF (success) or a positive errno value (failure)...
      */
     int (*port_dump_start)(const struct ofproto *ofproto, void **statep);
     int (*port_dump_next)(const struct ofproto *ofproto, void *state,
@@ -1297,8 +1329,8 @@ struct ofproto_class {
     struct rule *(*rule_alloc)(void);
     enum ofperr (*rule_construct)(struct rule *rule)
         /* OVS_REQUIRES(ofproto_mutex) */;
-    void (*rule_insert)(struct rule *rule, struct rule *old_rule,
-                        bool forward_counts)
+    enum ofperr (*rule_insert)(struct rule *rule, struct rule *old_rule,
+                               bool forward_counts)
         /* OVS_REQUIRES(ofproto_mutex) */;
     void (*rule_delete)(struct rule *rule) /* OVS_REQUIRES(ofproto_mutex) */;
     void (*rule_destruct)(struct rule *rule);
@@ -1952,7 +1984,7 @@ enum ofperr ofproto_flow_mod_learn_start(struct ofproto_flow_mod *ofm)
     OVS_REQUIRES(ofproto_mutex);
 void ofproto_flow_mod_learn_revert(struct ofproto_flow_mod *ofm)
     OVS_REQUIRES(ofproto_mutex);
-void ofproto_flow_mod_learn_finish(struct ofproto_flow_mod *ofm,
+enum ofperr ofproto_flow_mod_learn_finish(struct ofproto_flow_mod *ofm,
                                           struct ofproto *orig_ofproto)
     OVS_REQUIRES(ofproto_mutex);
 void ofproto_add_flow(struct ofproto *, const struct match *, int priority,

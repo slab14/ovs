@@ -68,9 +68,9 @@
  * datapath implements these (e.g. as the Linux and netdev datapaths do), then
  * Open vSwitch's ovs-vswitchd daemon can directly control what ports are used
  * for switching.  Some datapaths might not implement them, or implement them
- * with restrictions on the types of ports that can be added or removed
- * (e.g. on ESX), on systems where port membership can only be changed by some
- * external entity.
+ * with restrictions on the types of ports that can be added or removed,
+ * on systems where port membership can only be changed by some external
+ * entity.
  *
  * Each datapath must have a port, sometimes called the "local port", whose
  * name is the same as the datapath itself, with port number 0.  The local port
@@ -419,6 +419,8 @@ const char *dpif_name(const struct dpif *);
 const char *dpif_base_name(const struct dpif *);
 const char *dpif_type(const struct dpif *);
 
+bool dpif_cleanup_required(const struct dpif *);
+
 int dpif_delete(struct dpif *);
 
 /* Statistics for a dpif as a whole. */
@@ -499,6 +501,11 @@ struct dpif_flow_attrs {
     const char *dp_layer;   /* DP layer the flow is handled in. */
 };
 
+struct dpif_flow_dump_types {
+    bool ovs_flows;
+    bool netdev_flows;
+};
+
 void dpif_flow_stats_extract(const struct flow *, const struct dp_packet *packet,
                              long long int used, struct dpif_flow_stats *);
 void dpif_flow_stats_format(const struct dpif_flow_stats *, struct ds *);
@@ -560,7 +567,7 @@ int dpif_flow_get(struct dpif *,
  * All error reporting is deferred to the call to dpif_flow_dump_destroy().
  */
 struct dpif_flow_dump *dpif_flow_dump_create(const struct dpif *, bool terse,
-                                             char *type);
+                                             struct dpif_flow_dump_types *);
 int dpif_flow_dump_destroy(struct dpif_flow_dump *);
 
 struct dpif_flow_dump_thread *dpif_flow_dump_thread_create(
@@ -599,6 +606,13 @@ enum dpif_op_type {
     DPIF_OP_FLOW_DEL,
     DPIF_OP_EXECUTE,
     DPIF_OP_FLOW_GET,
+};
+
+/* offload_type argument types to (*operate) interface */
+enum dpif_offload_type {
+    DPIF_OFFLOAD_AUTO,         /* Offload if possible, fallback to software. */
+    DPIF_OFFLOAD_NEVER,        /* Never offload to hardware. */
+    DPIF_OFFLOAD_ALWAYS,       /* Always offload to hardware. */
 };
 
 /* Add or modify a flow.
@@ -755,7 +769,8 @@ struct dpif_op {
     };
 };
 
-void dpif_operate(struct dpif *, struct dpif_op **ops, size_t n_ops);
+void dpif_operate(struct dpif *, struct dpif_op **ops, size_t n_ops,
+                  enum dpif_offload_type);
 
 /* Upcalls. */
 

@@ -1,6 +1,6 @@
 # -*- autoconf -*-
 
-# Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Nicira, Inc.
+# Copyright (c) 2008-2016, 2019 Nicira, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,16 +59,6 @@ AC_DEFUN([OVS_CHECK_NDEBUG],
       esac],
      [ndebug=false])
    AM_CONDITIONAL([NDEBUG], [test x$ndebug = xtrue])])
-
-dnl Checks for ESX.
-AC_DEFUN([OVS_CHECK_ESX],
-  [AC_CHECK_HEADER([vmware.h],
-                   [ESX=yes],
-                   [ESX=no])
-   AM_CONDITIONAL([ESX], [test "$ESX" = yes])
-   if test "$ESX" = yes; then
-      AC_DEFINE([ESX], [1], [Define to 1 if building on ESX.])
-   fi])
 
 dnl Checks for MSVC x64 compiler.
 AC_DEFUN([OVS_CHECK_WIN64],
@@ -285,7 +275,24 @@ OpenFlow connections over SSL will not be supported.
    AM_CONDITIONAL([HAVE_OPENSSL], [test "$HAVE_OPENSSL" = yes])
    if test "$HAVE_OPENSSL" = yes; then
       AC_DEFINE([HAVE_OPENSSL], [1], [Define to 1 if OpenSSL is installed.])
-   fi])
+   fi
+
+   OPENSSL_SUPPORTS_SNI=no
+   if test $HAVE_OPENSSL = yes; then
+      save_CPPFLAGS=$CPPFLAGS
+      CPPFLAGS="$CPPFLAGS $SSL_INCLUDES"
+      AC_CHECK_DECL([SSL_set_tlsext_host_name], [OPENSSL_SUPPORTS_SNI=yes],
+                    [], [#include <openssl/ssl.h>
+])
+      if test $OPENSSL_SUPPORTS_SNI = yes; then
+        AC_DEFINE(
+          [OPENSSL_SUPPORTS_SNI], [1],
+          [Define to 1 if OpenSSL supports Server Name Indication (SNI).])
+      fi
+      CPPFLAGS=$save_CPPFLAGS
+   fi
+   AC_SUBST([OPENSSL_SUPPORTS_SNI])
+])
 
 dnl Checks for libraries needed by lib/socket-util.c.
 AC_DEFUN([OVS_CHECK_SOCKET_LIBS],
@@ -371,7 +378,7 @@ else:
             fi
           done
         done
-        if test $ovs_cv_python2 != no && test -x "$ovs_cv_python2"; then
+        if test "$ovs_cv_python2" != no && test -x "$ovs_cv_python2"; then
           if ! "$ovs_cv_python2" -c 'import six ; six.moves.range' >&AS_MESSAGE_LOG_FD 2>&1; then
             ovs_cv_python2=no
             AC_MSG_WARN([Missing Python six library or version too old.])
@@ -380,7 +387,7 @@ else:
       fi])
    AC_SUBST([HAVE_PYTHON2])
    AM_MISSING_PROG([PYTHON2], [python2])
-   if test $ovs_cv_python2 != no; then
+   if test "$ovs_cv_python2" != no; then
      PYTHON2=$ovs_cv_python2
      HAVE_PYTHON2=yes
    else
@@ -412,7 +419,7 @@ else:
             fi
           done
         done
-        if test $ovs_cv_python3 != no; then
+        if test "$ovs_cv_python3" != no; then
           if test -x "$ovs_cv_python3" && ! "$ovs_cv_python3" -c 'import six' >/dev/null 2>&1; then
             ovs_cv_python3=no
             AC_MSG_WARN([Missing Python six library.])
@@ -421,7 +428,7 @@ else:
       fi])
    AC_SUBST([HAVE_PYTHON3])
    AM_MISSING_PROG([PYTHON3], [python3])
-   if test $ovs_cv_python3 != no; then
+   if test "$ovs_cv_python3" != no; then
      PYTHON3=$ovs_cv_python3
      HAVE_PYTHON3=yes
    else
@@ -439,9 +446,9 @@ AC_DEFUN([OVS_CHECK_PYTHON],
         ovs_cv_python=$PYTHON
       else
         ovs_cv_python=no
-        if test $ovs_cv_python2 != no; then
+        if test "$ovs_cv_python2" != no; then
           ovs_cv_python=$ovs_cv_python2
-        elif test $ovs_cv_python3 != no; then
+        elif test "$ovs_cv_python3" != no; then
           ovs_cv_python=$ovs_cv_python3
         else
           AC_MSG_ERROR([Missing Python.])
@@ -691,7 +698,7 @@ AC_DEFUN([OVS_CHECK_CXX],
 
 dnl Checks for unbound library.
 AC_DEFUN([OVS_CHECK_UNBOUND],
-  [AC_CHECK_LIB(unbound, ub_ctx_create, [HAVE_UNBOUND=yes])
+  [AC_CHECK_LIB(unbound, ub_ctx_create, [HAVE_UNBOUND=yes], [HAVE_UNBOUND=no])
    if test "$HAVE_UNBOUND" = yes; then
      AC_DEFINE([HAVE_UNBOUND], [1], [Define to 1 if unbound is detected.])
      LIBS="$LIBS -lunbound"

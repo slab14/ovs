@@ -72,13 +72,27 @@ add_ipv6_netaddr(struct lport_addresses *laddrs, struct in6_addr addr,
  *    "xx:xx:xx:xx:xx:xx dynamic":
  *        Use specified MAC address, but allocate an IP address
  *        dynamically.
+ *
+ *    "dynamic x.x.x.x":
+ *        Use specified IP address, but allocate a MAC address
+ *        dynamically.
  */
 bool
 is_dynamic_lsp_address(const char *address)
 {
+    char ipv6_s[IPV6_SCAN_LEN + 1];
     struct eth_addr ea;
+    ovs_be32 ip;
     int n;
     return (!strcmp(address, "dynamic")
+            || (ovs_scan(address, "dynamic "IP_SCAN_FMT"%n",
+                         IP_SCAN_ARGS(&ip), &n)
+                         && address[n] == '\0')
+            || (ovs_scan(address, "dynamic "IP_SCAN_FMT" "IPV6_SCAN_FMT"%n",
+                         IP_SCAN_ARGS(&ip), ipv6_s, &n)
+                         && address[n] == '\0')
+            || (ovs_scan(address, "dynamic "IPV6_SCAN_FMT"%n",
+                         ipv6_s, &n) && address[n] == '\0')
             || (ovs_scan(address, ETH_ADDR_SCAN_FMT" dynamic%n",
                          ETH_ADDR_SCAN_ARGS(ea), &n) && address[n] == '\0'));
 }
@@ -311,6 +325,8 @@ static const char *OVN_NB_LSP_TYPES[] = {
     "localport",
     "router",
     "vtep",
+    "external",
+    "virtual",
 };
 
 bool

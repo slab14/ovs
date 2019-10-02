@@ -207,12 +207,31 @@ enum ofproto_band {
     OFPROTO_OUT_OF_BAND         /* Out-of-band connection to controller. */
 };
 
+/* ofproto supports two kinds of OpenFlow connections:
+ *
+ *   - "Primary" connections to ordinary OpenFlow controllers.  ofproto
+ *     maintains persistent connections to these controllers and by default
+ *     sends them asynchronous messages such as packet-ins.
+ *
+ *   - "Service" connections, e.g. from ovs-ofctl.  When these connections
+ *     drop, it is the other side's responsibility to reconnect them if
+ *     necessary.  ofproto does not send them asynchronous messages by default.
+ */
+enum ofconn_type {
+    OFCONN_PRIMARY,             /* An ordinary OpenFlow controller. */
+    OFCONN_SERVICE              /* A service connection, e.g. "ovs-ofctl". */
+};
+const char *ofconn_type_to_string(enum ofconn_type);
+
+/* Configuration for an OpenFlow controller. */
 struct ofproto_controller {
-    char *target;               /* e.g. "tcp:127.0.0.1" */
+    enum ofconn_type type;      /* Primary or service controller. */
     int max_backoff;            /* Maximum reconnection backoff, in seconds. */
     int probe_interval;         /* Max idle time before probing, in seconds. */
     enum ofproto_band band;     /* In-band or out-of-band? */
     bool enable_async_msgs;     /* Initially enable asynchronous messages? */
+    uint32_t allowed_versions;  /* OpenFlow protocol versions that may
+                                 * be negotiated for a session. */
 
     /* OpenFlow packet-in rate-limiting. */
     int rate_limit;             /* Max packet-in rate in packets per second. */
@@ -298,15 +317,16 @@ void ofproto_port_set_config(struct ofproto *, ofp_port_t ofp_port,
                              const struct smap *cfg);
 int ofproto_port_get_stats(const struct ofport *, struct netdev_stats *stats);
 
+int ofproto_vport_get_status(const struct ofproto *, ofp_port_t ofp_port,
+                             char **errp);
+
 int ofproto_port_query_by_name(const struct ofproto *, const char *devname,
                                struct ofproto_port *);
 
 /* Top-level configuration. */
 uint64_t ofproto_get_datapath_id(const struct ofproto *);
 void ofproto_set_datapath_id(struct ofproto *, uint64_t datapath_id);
-void ofproto_set_controllers(struct ofproto *,
-                             const struct ofproto_controller *, size_t n,
-                             uint32_t allowed_versions);
+void ofproto_set_controllers(struct ofproto *, struct shash *controllers);
 void ofproto_set_fail_mode(struct ofproto *, enum ofproto_fail_mode fail_mode);
 void ofproto_reconnect_controllers(struct ofproto *);
 void ofproto_set_extra_in_band_remotes(struct ofproto *,
@@ -396,6 +416,14 @@ enum port_vlan_mode {
     PORT_VLAN_DOT1Q_TUNNEL
 };
 
+/* The behaviour of the port regarding priority tags */
+enum port_priority_tags_mode {
+    PORT_PRIORITY_TAGS_NEVER = 0,
+    PORT_PRIORITY_TAGS_IF_NONZERO,
+    PORT_PRIORITY_TAGS_ALWAYS,
+};
+
+/* The behaviour of the port regarding priority tags */
 /* Configuration of bundles. */
 struct ofproto_bundle_settings {
     char *name;                 /* For use in log messages. */
@@ -408,7 +436,8 @@ struct ofproto_bundle_settings {
     int vlan;                   /* VLAN VID, except for PORT_VLAN_TRUNK. */
     unsigned long *trunks;      /* vlan_bitmap, except for PORT_VLAN_ACCESS. */
     unsigned long *cvlans;
-    bool use_priority_tags;     /* Use 802.1p tag for frames in VLAN 0? */
+    enum port_priority_tags_mode use_priority_tags;
+                                /* Use 802.1p tag for frames in VLAN 0? */
 
     struct bond_settings *bond; /* Must be nonnull iff if n_slaves > 1. */
 

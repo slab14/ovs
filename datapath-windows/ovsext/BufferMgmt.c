@@ -81,6 +81,7 @@
 #include "Flow.h"
 #include "Offload.h"
 #include "NetProto.h"
+#include "PacketIO.h"
 #include "PacketParser.h"
 #include "Switch.h"
 #include "Vport.h"
@@ -259,14 +260,16 @@ static VOID
 OvsInitNBLContext(POVS_BUFFER_CONTEXT ctx,
                   UINT16 flags,
                   UINT32 origDataLength,
-                  UINT32 srcPortNo)
+                  UINT32 srcPortNo,
+                  UINT16 mru)
 {
     ctx->magic = OVS_CTX_MAGIC;
     ctx->refCount = 1;
     ctx->flags = flags;
     ctx->srcPortNo = srcPortNo;
     ctx->origDataLength = origDataLength;
-    ctx->mru = 0;
+    ctx->mru = mru;
+    ctx->pendingSend = 0;
 }
 
 
@@ -432,7 +435,7 @@ OvsAllocateFixSizeNBL(PVOID ovsContext,
 
     OvsInitNBLContext(ctx, OVS_BUFFER_FROM_FIX_SIZE_POOL |
                       OVS_BUFFER_PRIVATE_FORWARD_CONTEXT, size,
-                      OVS_DPPORT_NUMBER_INVALID);
+                      OVS_DPPORT_NUMBER_INVALID, 0);
     line = __LINE__;
 allocate_done:
     OVS_LOG_LOUD("Allocate Fix NBL: %p, line: %d", nbl, line);
@@ -545,7 +548,7 @@ OvsAllocateVariableSizeNBL(PVOID ovsContext,
     OvsInitNBLContext(ctx, OVS_BUFFER_PRIVATE_MDL | OVS_BUFFER_PRIVATE_DATA |
                            OVS_BUFFER_PRIVATE_FORWARD_CONTEXT |
                            OVS_BUFFER_FROM_ZERO_SIZE_POOL,
-                           size, OVS_DPPORT_NUMBER_INVALID);
+                           size, OVS_DPPORT_NUMBER_INVALID, 0);
 
     OVS_LOG_LOUD("Allocate variable size NBL: %p", nbl);
     return nbl;
@@ -598,7 +601,7 @@ OvsInitExternalNBLContext(PVOID ovsContext,
      * complete.
      */
     OvsInitNBLContext(ctx, flags, NET_BUFFER_DATA_LENGTH(nb),
-                      OVS_DPPORT_NUMBER_INVALID);
+                      OVS_DPPORT_NUMBER_INVALID, 0);
     return ctx;
 }
 
@@ -815,7 +818,7 @@ OvsPartialCopyNBL(PVOID ovsContext,
     srcNb = NET_BUFFER_LIST_FIRST_NB(nbl);
     ASSERT(srcNb);
     OvsInitNBLContext(dstCtx, flags, NET_BUFFER_DATA_LENGTH(srcNb) - copySize,
-                      OVS_DPPORT_NUMBER_INVALID);
+                      OVS_DPPORT_NUMBER_INVALID, srcCtx->mru);
 
     InterlockedIncrement((LONG volatile *)&srcCtx->refCount);
 
@@ -1072,7 +1075,7 @@ OvsFullCopyNBL(PVOID ovsContext,
              OVS_BUFFER_PRIVATE_FORWARD_CONTEXT;
 
     OvsInitNBLContext(dstCtx, flags, NET_BUFFER_DATA_LENGTH(firstNb),
-                      OVS_DPPORT_NUMBER_INVALID);
+                      OVS_DPPORT_NUMBER_INVALID, srcCtx->mru);
 
 #ifdef DBG
     OvsDumpNetBufferList(nbl);
@@ -1101,9 +1104,9 @@ nblcopy_error:
 
 NDIS_STATUS
 GetIpHeaderInfo(PNET_BUFFER_LIST curNbl,
+                const POVS_PACKET_HDR_INFO hdrInfo,
                 UINT32 *hdrSize)
 {
-    CHAR *ethBuf[sizeof(EthHdr)];
     EthHdr *eth;
     IPHdr *ipHdr;
     PNET_BUFFER curNb;
@@ -1111,16 +1114,14 @@ GetIpHeaderInfo(PNET_BUFFER_LIST curNbl,
     curNb = NET_BUFFER_LIST_FIRST_NB(curNbl);
     ASSERT(NET_BUFFER_NEXT_NB(curNb) == NULL);
 
-    eth = (EthHdr *)NdisGetDataBuffer(curNb, ETH_HEADER_LENGTH,
-                                      (PVOID)&ethBuf, 1, 0);
+    eth = (EthHdr *)NdisGetDataBuffer(curNb,
+                                      hdrInfo->l4Offset,
+                                      NULL, 1, 0);
     if (eth == NULL) {
         return NDIS_STATUS_INVALID_PACKET;
     }
-    ipHdr = (IPHdr *)((PCHAR)eth + ETH_HEADER_LENGTH);
-    if (ipHdr == NULL) {
-        return NDIS_STATUS_INVALID_PACKET;
-    }
-    *hdrSize = (UINT32)(ETH_HEADER_LENGTH + (ipHdr->ihl * 4));
+    ipHdr = (IPHdr *)((PCHAR)eth + hdrInfo->l3Offset);
+    *hdrSize = (UINT32)(hdrInfo->l3Offset + (ipHdr->ihl * 4));
     return NDIS_STATUS_SUCCESS;
 }
 
@@ -1380,7 +1381,7 @@ OvsFragmentNBL(PVOID ovsContext,
 
     /* Figure out the header size */
     if (isIpFragment) {
-        status = GetIpHeaderInfo(nbl, &hdrSize);
+        status = GetIpHeaderInfo(nbl, hdrInfo, &hdrSize);
     } else {
         status = GetSegmentHeaderInfo(nbl, hdrInfo, &hdrSize, &seqNumber);
     }
@@ -1748,8 +1749,13 @@ OvsCompleteNBL(PVOID switch_ctx,
     if (parent != NULL) {
         ctx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(parent);
         ASSERT(ctx && ctx->magic == OVS_CTX_MAGIC);
+        UINT16 pendingSend = 1, exchange = 0;
         value = InterlockedDecrement((LONG volatile *)&ctx->refCount);
-        if (value == 0) {
+        InterlockedCompareExchange16((SHORT volatile *)&pendingSend, exchange, (SHORT)ctx->pendingSend);
+        if (value == 1 && pendingSend == exchange) {
+            InterlockedExchange16((SHORT volatile *)&ctx->pendingSend, 0);
+            OvsSendNBLIngress(context, parent, ctx->sendFlags);
+        } else if (value == 0){
             return OvsCompleteNBL(context, parent, FALSE);
         }
     }

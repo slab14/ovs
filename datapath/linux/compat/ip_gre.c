@@ -64,121 +64,21 @@
 #include "vport-netdev.h"
 
 static int gre_tap_net_id __read_mostly;
-static int ipgre_net_id __read_mostly;
 static unsigned int erspan_net_id __read_mostly;
 static void erspan_build_header(struct sk_buff *skb,
 				__be32 id, u32 index,
 				bool truncate, bool is_ipv4);
 
-static struct rtnl_link_ops ipgre_link_ops __read_mostly;
 static bool ip_gre_loaded = false;
 
-#define ip_gre_calc_hlen rpl_ip_gre_calc_hlen
-static int ip_gre_calc_hlen(__be16 o_flags)
-{
-	int addend = 4;
-
-	if (o_flags & TUNNEL_CSUM)
-		addend += 4;
-	if (o_flags & TUNNEL_KEY)
-		addend += 4;
-	if (o_flags & TUNNEL_SEQ)
-		addend += 4;
-	return addend;
-}
-
-/* Returns the least-significant 32 bits of a __be64. */
-static __be32 tunnel_id_to_key(__be64 x)
-{
-#ifdef __BIG_ENDIAN
-	return (__force __be32)x;
-#else
-	return (__force __be32)((__force u64)x >> 32);
-#endif
-}
-
-static struct dst_ops md_dst_ops = {
+/* Normally in net/core/dst.c but move it here */
+struct dst_ops md_dst_ops = {
 	.family =		AF_UNSPEC,
 };
 
-#ifndef DST_METADATA
-#define DST_METADATA 0x0080
+#ifndef ip_gre_calc_hlen
+#define ip_gre_calc_hlen gre_calc_hlen
 #endif
-
-static void rpl__metadata_dst_init(struct metadata_dst *md_dst,
-				enum metadata_type type, u8 optslen)
-
-{
-	struct dst_entry *dst;
-
-	dst = &md_dst->dst;
-	dst_init(dst, &md_dst_ops, NULL, 1, DST_OBSOLETE_NONE,
-		 DST_METADATA | DST_NOCOUNT);
-
-#if 0
-	/* unused in OVS */
-	dst->input = dst_md_discard;
-	dst->output = dst_md_discard_out;
-#endif
-	memset(dst + 1, 0, sizeof(*md_dst) + optslen - sizeof(*dst));
-	md_dst->type = type;
-}
-
-static struct metadata_dst *erspan_rpl_metadata_dst_alloc(u8 optslen, enum metadata_type type,
-					gfp_t flags)
-{
-	struct metadata_dst *md_dst;
-
-	md_dst = kmalloc(sizeof(*md_dst) + optslen, flags);
-	if (!md_dst)
-		return NULL;
-
-	rpl__metadata_dst_init(md_dst, type, optslen);
-
-	return md_dst;
-}
-static inline struct metadata_dst *rpl_tun_rx_dst(int md_size)
-{
-	struct metadata_dst *tun_dst;
-
-	tun_dst = erspan_rpl_metadata_dst_alloc(md_size, METADATA_IP_TUNNEL, GFP_ATOMIC);
-	if (!tun_dst)
-		return NULL;
-
-	tun_dst->u.tun_info.options_len = 0;
-	tun_dst->u.tun_info.mode = 0;
-	return tun_dst;
-}
-static inline struct metadata_dst *rpl__ip_tun_set_dst(__be32 saddr,
-						    __be32 daddr,
-						    __u8 tos, __u8 ttl,
-						    __be16 tp_dst,
-						    __be16 flags,
-						    __be64 tunnel_id,
-						    int md_size)
-{
-	struct metadata_dst *tun_dst;
-
-	tun_dst = rpl_tun_rx_dst(md_size);
-	if (!tun_dst)
-		return NULL;
-
-	ip_tunnel_key_init(&tun_dst->u.tun_info.key,
-			   saddr, daddr, tos, ttl,
-			   0, 0, tp_dst, tunnel_id, flags);
-	return tun_dst;
-}
-
-static inline struct metadata_dst *rpl_ip_tun_rx_dst(struct sk_buff *skb,
-						 __be16 flags,
-						 __be64 tunnel_id,
-						 int md_size)
-{
-	const struct iphdr *iph = ip_hdr(skb);
-
-	return rpl__ip_tun_set_dst(iph->saddr, iph->daddr, iph->tos, iph->ttl,
-				0, flags, tunnel_id, md_size);
-}
 
 static int erspan_rcv(struct sk_buff *skb, struct tnl_ptk_info *tpi,
 		      int gre_hdr_len)
@@ -316,16 +216,10 @@ static int ipgre_rcv(struct sk_buff *skb, const struct tnl_ptk_info *tpi,
 		 tpi->proto == htons(ETH_P_ERSPAN2))
 		itn = net_generic(net, erspan_net_id);
 	else
-		itn = net_generic(net, ipgre_net_id);
+		return PACKET_RCVD;
 
 	res = __ipgre_rcv(skb, tpi, itn, hdr_len, false);
-	if (res == PACKET_NEXT && tpi->proto == htons(ETH_P_TEB)) {
-		/* ipgre tunnels in collect metadata mode should receive
-		 * also ETH_P_TEB traffic.
-		 */
-		itn = net_generic(net, ipgre_net_id);
-		res = __ipgre_rcv(skb, tpi, itn, hdr_len, true);
-	}
+
 	return res;
 }
 
@@ -570,7 +464,7 @@ netdev_tx_t rpl_gre_fb_xmit(struct sk_buff *skb)
 
 	flags = tun_info->key.tun_flags & (TUNNEL_CSUM | TUNNEL_KEY);
 	build_header(skb, tunnel_hlen, flags, htons(ETH_P_TEB),
-		     tunnel_id_to_key(tun_info->key.tun_id), 0);
+		     tunnel_id_to_key32(tun_info->key.tun_id), 0);
 
 	df = key->tun_flags & TUNNEL_DONT_FRAGMENT ?  htons(IP_DF) : 0;
 	iptunnel_xmit(skb->sk, rt, skb, fl.saddr, key->u.ipv4.dst, IPPROTO_GRE,
@@ -609,6 +503,8 @@ static void erspan_fb_xmit(struct sk_buff *skb, struct net_device *dev,
 		goto err_free_skb;
 
 	key = &tun_info->key;
+	if (!(tun_info->key.tun_flags & TUNNEL_ERSPAN_OPT))
+		goto err_free_rt;
 	md = ip_tunnel_info_opts(tun_info);
 	if (!md)
 		goto err_free_rt;
@@ -684,15 +580,12 @@ err_free_skb:
 static void __gre_tunnel_init(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel;
-	int t_hlen;
 
 	tunnel = netdev_priv(dev);
 	tunnel->tun_hlen = ip_gre_calc_hlen(tunnel->parms.o_flags);
 	tunnel->parms.iph.protocol = IPPROTO_GRE;
 
 	tunnel->hlen = tunnel->tun_hlen + tunnel->encap_hlen;
-
-	t_hlen = tunnel->hlen + sizeof(struct iphdr);
 
 	dev->features		|= GRE_FEATURES;
 	dev->hw_features	|= GRE_FEATURES;
@@ -728,25 +621,6 @@ void __gre_err(struct sk_buff *skb, u32 info)
 static const struct gre_protocol ipgre_protocol = {
 	.handler     = __gre_rcv,
 	.err_handler = __gre_err,
-};
-
-static int __net_init ipgre_init_net(struct net *net)
-{
-	return ip_tunnel_init_net(net, ipgre_net_id, &ipgre_link_ops, NULL);
-}
-
-static void __net_exit ipgre_exit_net(struct net *net)
-{
-	struct ip_tunnel_net *itn = net_generic(net, ipgre_net_id);
-
-	ip_tunnel_delete_net(itn, &ipgre_link_ops);
-}
-
-static struct pernet_operations ipgre_net_ops = {
-	.init = ipgre_init_net,
-	.exit = ipgre_exit_net,
-	.id   = &ipgre_net_id,
-	.size = sizeof(struct ip_tunnel_net),
 };
 
 #ifdef HAVE_EXT_ACK_IN_RTNL_LINKOPS
@@ -1034,16 +908,12 @@ EXPORT_SYMBOL_GPL(ovs_gre_fill_metadata_dst);
 static int erspan_tunnel_init(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
-	int t_hlen;
 
 	tunnel->tun_hlen = 8;
 	tunnel->parms.iph.protocol = IPPROTO_GRE;
 	tunnel->hlen = tunnel->tun_hlen + tunnel->encap_hlen +
 		       erspan_hdr_len(tunnel->erspan_ver);
-	t_hlen = tunnel->hlen + sizeof(struct iphdr);
 
-	dev->needed_headroom = LL_MAX_HEADER + t_hlen + 4;
-	dev->mtu = ETH_DATA_LEN - t_hlen - 4;
 	dev->features		|= GRE_FEATURES;
 	dev->hw_features	|= GRE_FEATURES;
 	dev->priv_flags		|= IFF_LIVE_ADDR_CHANGE;
@@ -1212,13 +1082,6 @@ static const struct net_device_ops erspan_netdev_ops = {
 #endif
 };
 
-static void ipgre_tunnel_setup(struct net_device *dev)
-{
-	dev->netdev_ops		= &ipgre_netdev_ops;
-	dev->type		= ARPHRD_IPGRE;
-	ip_tunnel_setup(dev, ipgre_net_id);
-}
-
 static void ipgre_tap_setup(struct net_device *dev)
 {
 	ether_setup(dev);
@@ -1357,22 +1220,6 @@ static const struct nla_policy ipgre_policy[RPL_IFLA_GRE_MAX + 1] = {
 	[IFLA_GRE_ERSPAN_VER]	= { .type = NLA_U8 },
 	[IFLA_GRE_ERSPAN_DIR]	= { .type = NLA_U8 },
 	[IFLA_GRE_ERSPAN_HWID]	= { .type = NLA_U16 },
-};
-
-static struct rtnl_link_ops ipgre_link_ops __read_mostly = {
-	.kind		= "gre",
-	.maxtype	= RPL_IFLA_GRE_MAX,
-	.policy		= ipgre_policy,
-	.priv_size	= sizeof(struct ip_tunnel),
-	.setup		= ipgre_tunnel_setup,
-	.validate	= ipgre_tunnel_validate,
-	.newlink	= ipgre_newlink,
-	.dellink	= ip_tunnel_dellink,
-	.get_size	= ipgre_get_size,
-	.fill_info	= ipgre_fill_info,
-#ifdef HAVE_GET_LINK_NET
-	.get_link_net	= ip_tunnel_get_link_net,
-#endif
 };
 
 static struct rtnl_link_ops ipgre_tap_ops __read_mostly = {
@@ -1555,7 +1402,7 @@ static struct vport *erspan_tnl_create(const struct vport_parms *parms)
 		return ERR_CAST(dev);
 	}
 
-	err = dev_change_flags(dev, dev->flags | IFF_UP);
+	err = dev_change_flags(dev, dev->flags | IFF_UP, NULL);
 	if (err < 0) {
 		rtnl_delete_link(dev);
 		rtnl_unlock();
@@ -1609,7 +1456,7 @@ static struct vport *ipgre_tnl_create(const struct vport_parms *parms)
 		return ERR_CAST(dev);
 	}
 
-	err = dev_change_flags(dev, dev->flags | IFF_UP);
+	err = dev_change_flags(dev, dev->flags | IFF_UP, NULL);
 	if (err < 0) {
 		rtnl_delete_link(dev);
 		rtnl_unlock();
@@ -1662,14 +1509,6 @@ int rpl_ipgre_init(void)
 			goto pnet_erspan_failed;
 	}
 
-	err = register_pernet_device(&ipgre_net_ops);
-	if (err < 0) {
-		if (err == -EEXIST)
-			goto ip_gre_loaded;
-		else
-			goto pnet_ipgre_failed;
-	}
-
 	err = gre_add_protocol(&ipgre_protocol, GREPROTO_CISCO);
 	if (err < 0) {
 		pr_info("%s: can't add protocol\n", __func__);
@@ -1703,8 +1542,6 @@ ip_gre_loaded:
 	return 0;
 
 add_proto_failed:
-	unregister_pernet_device(&ipgre_net_ops);
-pnet_ipgre_failed:
 	unregister_pernet_device(&erspan_net_ops);
 pnet_erspan_failed:
 	unregister_pernet_device(&ipgre_tap_net_ops);
@@ -1720,7 +1557,6 @@ void rpl_ipgre_fini(void)
 
 	if (!ip_gre_loaded) {
 		gre_del_protocol(&ipgre_protocol, GREPROTO_CISCO);
-		unregister_pernet_device(&ipgre_net_ops);
 		unregister_pernet_device(&erspan_net_ops);
 		unregister_pernet_device(&ipgre_tap_net_ops);
 	}

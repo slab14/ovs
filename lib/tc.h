@@ -26,6 +26,8 @@
 #include "netlink-socket.h"
 #include "odp-netlink.h"
 #include "openvswitch/ofpbuf.h"
+#include "openvswitch/flow.h"
+#include "openvswitch/tun-metadata.h"
 
 /* For backwards compatability with older kernels */
 #ifndef TC_H_CLSACT
@@ -34,10 +36,26 @@
 #ifndef TC_H_MIN_INGRESS
 #define TC_H_MIN_INGRESS       0xFFF2U
 #endif
+#ifndef TC_H_MIN_EGRESS
+#define TC_H_MIN_EGRESS       0xFFF3U
+#endif
 
 #define TC_INGRESS_PARENT TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_INGRESS)
+#define TC_EGRESS_PARENT TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_EGRESS)
 
 #define TC_POLICY_DEFAULT "none"
+
+enum tc_flower_reserved_prio {
+    TC_RESERVED_PRIORITY_NONE,
+    TC_RESERVED_PRIORITY_POLICE,
+    __TC_RESERVED_PRIORITY_MAX
+};
+#define TC_RESERVED_PRIORITY_MAX (__TC_RESERVED_PRIORITY_MAX -1)
+
+enum tc_qdisc_hook {
+    TC_INGRESS,
+    TC_EGRESS,
+};
 
 /* Returns tc handle 'major':'minor'. */
 static inline unsigned int
@@ -63,7 +81,8 @@ tc_get_minor(unsigned int handle)
 struct tcmsg *tc_make_request(int ifindex, int type,
                               unsigned int flags, struct ofpbuf *);
 int tc_transact(struct ofpbuf *request, struct ofpbuf **replyp);
-int tc_add_del_ingress_qdisc(int ifindex, bool add, uint32_t block_id);
+int tc_add_del_qdisc(int ifindex, bool add, uint32_t block_id,
+                     enum tc_qdisc_hook hook);
 
 struct tc_cookie {
     const void *data;
@@ -77,6 +96,7 @@ struct tc_flower_key {
     struct eth_addr dst_mac;
     struct eth_addr src_mac;
 
+    ovs_be32 mpls_lse;
     ovs_be16 tcp_src;
     ovs_be16 tcp_dst;
     ovs_be16 tcp_flags;
@@ -87,10 +107,10 @@ struct tc_flower_key {
     ovs_be16 sctp_src;
     ovs_be16 sctp_dst;
 
-    uint16_t vlan_id;
-    uint8_t vlan_prio;
+    uint16_t vlan_id[FLOW_MAX_VLAN_HEADERS];
+    uint8_t vlan_prio[FLOW_MAX_VLAN_HEADERS];
 
-    ovs_be16 encap_eth_type;
+    ovs_be16 encap_eth_type[FLOW_MAX_VLAN_HEADERS];
 
     uint8_t flags;
     uint8_t ip_ttl;
@@ -100,11 +120,31 @@ struct tc_flower_key {
         ovs_be32 ipv4_src;
         ovs_be32 ipv4_dst;
         uint8_t rewrite_ttl;
+        uint8_t rewrite_tos;
     } ipv4;
     struct {
         struct in6_addr ipv6_src;
         struct in6_addr ipv6_dst;
+        uint8_t rewrite_hlimit;
+        uint8_t rewrite_tclass;
     } ipv6;
+
+    struct {
+        struct {
+            ovs_be32 ipv4_src;
+            ovs_be32 ipv4_dst;
+        } ipv4;
+        struct {
+            struct in6_addr ipv6_src;
+            struct in6_addr ipv6_dst;
+        } ipv6;
+        uint8_t tos;
+        uint8_t ttl;
+        ovs_be16 tp_src;
+        ovs_be16 tp_dst;
+        ovs_be64 id;
+        struct tun_metadata metadata;
+    } tunnel;
 };
 
 enum tc_action_type {
@@ -117,17 +157,25 @@ enum tc_action_type {
 
 struct tc_action {
     union {
-        int ifindex_out;
+        struct {
+            int ifindex_out;
+            bool ingress;
+        } out;
 
         struct {
+            ovs_be16 vlan_push_tpid;
             uint16_t vlan_push_id;
             uint8_t vlan_push_prio;
         } vlan;
 
         struct {
+            bool id_present;
             ovs_be64 id;
             ovs_be16 tp_src;
             ovs_be16 tp_dst;
+            uint8_t tos;
+            uint8_t ttl;
+            uint8_t no_csum;
             struct {
                 ovs_be32 ipv4_src;
                 ovs_be32 ipv4_dst;
@@ -136,6 +184,7 @@ struct tc_action {
                 struct in6_addr ipv6_src;
                 struct in6_addr ipv6_dst;
             } ipv6;
+            struct tun_metadata data;
         } encap;
      };
 
@@ -169,20 +218,7 @@ struct tc_flower {
 
     uint32_t csum_update_flags;
 
-    struct {
-        bool tunnel;
-        struct {
-            ovs_be32 ipv4_src;
-            ovs_be32 ipv4_dst;
-        } ipv4;
-        struct {
-            struct in6_addr ipv6_src;
-            struct in6_addr ipv6_dst;
-        } ipv6;
-        ovs_be64 id;
-        ovs_be16 tp_src;
-        ovs_be16 tp_dst;
-    } tunnel;
+    bool tunnel;
 
     struct tc_cookie act_cookie;
 
@@ -199,12 +235,16 @@ BUILD_ASSERT_DECL(offsetof(struct tc_flower, rewrite)
                   + sizeof(uint32_t) - 2 < sizeof(struct tc_flower));
 
 int tc_replace_flower(int ifindex, uint16_t prio, uint32_t handle,
-                      struct tc_flower *flower, uint32_t block_id);
-int tc_del_filter(int ifindex, int prio, int handle, uint32_t block_id);
+                      struct tc_flower *flower, uint32_t block_id,
+                      enum tc_qdisc_hook hook);
+int tc_del_filter(int ifindex, int prio, int handle, uint32_t block_id,
+                  enum tc_qdisc_hook hook);
 int tc_get_flower(int ifindex, int prio, int handle,
-                  struct tc_flower *flower, uint32_t block_id);
-int tc_flush(int ifindex, uint32_t block_id);
-int tc_dump_flower_start(int ifindex, struct nl_dump *dump, uint32_t block_id);
+                  struct tc_flower *flower, uint32_t block_id,
+                  enum tc_qdisc_hook hook);
+int tc_flush(int ifindex, uint32_t block_id, enum tc_qdisc_hook hook);
+int tc_dump_flower_start(int ifindex, struct nl_dump *dump, uint32_t block_id,
+                         enum tc_qdisc_hook hook);
 int parse_netlink_to_tc_flower(struct ofpbuf *reply,
                                struct tc_flower *flower);
 void tc_set_policy(const char *policy);

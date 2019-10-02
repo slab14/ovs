@@ -82,7 +82,7 @@ openvswitch_headers += \
 	linux/compat/include/net/inetpeer.h \
 	linux/compat/include/net/ip.h \
 	linux/compat/include/net/ip_tunnels.h \
-	linux/compat/include/net/ip6_fib.h \
+        linux/compat/include/net/ip6_fib.h \
 	linux/compat/include/net/ip6_route.h \
 	linux/compat/include/net/ip6_tunnel.h \
 	linux/compat/include/net/ipv6.h \
@@ -116,5 +116,6 @@ openvswitch_headers += \
 	linux/compat/include/uapi/linux/netfilter.h \
 	linux/compat/include/linux/mm.h \
 	linux/compat/include/linux/netfilter.h \
-	linux/compat/include/linux/overflow.h
+	linux/compat/include/linux/overflow.h \
+	linux/compat/include/linux/rbtree.h
 EXTRA_DIST += linux/compat/build-aux/export-check-whitelist

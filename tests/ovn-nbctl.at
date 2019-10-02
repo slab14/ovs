@@ -15,7 +15,7 @@ ovn_nbctl_test_start() {
    on_exit "kill `cat ovsdb-server.pid`"
    AS_CASE([$1],
      [daemon],
-       [export OVN_NB_DAEMON=$(ovn-nbctl --pidfile --detach --log-file -vsocket_util:off)
+       [export OVN_NB_DAEMON=$(ovn-nbctl --pidfile --detach --no-chdir --log-file -vsocket_util:off)
         on_exit "kill `cat ovn-nbctl.pid`"],
      [direct], [],
      [*], [AT_FAIL_IF(:)])
@@ -149,6 +149,20 @@ AT_CHECK([ovn-nbctl --may-exist lsp-add ls0 lp2 lp3 10], [1], [],
 AT_CHECK([ovn-nbctl clear Logical_Switch_Port lp2 tag_request])
 AT_CHECK([ovn-nbctl --may-exist lsp-add ls0 lp2 lp3 5], [1], [],
   [ovn-nbctl: lp2: port already exists but has no tag_request
+])])
+
+dnl ---------------------------------------------------------------------
+
+OVN_NBCTL_TEST([ovn_nbctl_lsp_get_ls], [lsp get ls], [
+AT_CHECK([ovn-nbctl ls-add ls0])
+AT_CHECK([ovn-nbctl lsp-add ls0 lp0])
+
+AT_CHECK([ovn-nbctl lsp-get-ls lp0 | uuidfilt], [0], [dnl
+<0> (ls0)
+])
+
+AT_CHECK([ovn-nbctl lsp-get-ls lp1], [1], [],
+  [ovn-nbctl: lp1: port name not found
 ])])
 
 dnl ---------------------------------------------------------------------
@@ -643,8 +657,8 @@ AT_CHECK([ovn-nbctl lb-list | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP             IPs
 <0>    lb0                 tcp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
 <1>    lb1                 udp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:8080
-<2>    lb2                 tcp/udp    30.0.0.30       192.168.10.10
-<3>    lb3                 tcp/udp    30.0.0.30       192.168.10.10
+<2>    lb2                 tcp        30.0.0.30       192.168.10.10
+<3>    lb3                 tcp        30.0.0.30       192.168.10.10
 ])
 AT_CHECK([ovn-nbctl lb-del lb2 30.0.0.30])
 AT_CHECK([ovn-nbctl lb-del lb3 30.0.0.30])
@@ -696,14 +710,14 @@ AT_CHECK([ovn-nbctl ls-lb-list ls0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP             IPs
 <0>    lb0                 tcp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
 <1>    lb1                 udp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
-<2>    lb3                 tcp/udp    30.0.0.10       192.168.10.10,192.168.10.20
+<2>    lb3                 tcp        30.0.0.10       192.168.10.10,192.168.10.20
 ])
 
 AT_CHECK([ovn-nbctl ls-lb-del ls0 lb0])
 AT_CHECK([ovn-nbctl ls-lb-list ls0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP             IPs
 <0>    lb1                 udp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
-<1>    lb3                 tcp/udp    30.0.0.10       192.168.10.10,192.168.10.20
+<1>    lb3                 tcp        30.0.0.10       192.168.10.10,192.168.10.20
 ])
 
 AT_CHECK([ovn-nbctl ls-lb-del ls0 lb1])
@@ -732,14 +746,14 @@ AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP             IPs
 <0>    lb0                 tcp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
 <1>    lb1                 udp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
-<2>    lb3                 tcp/udp    30.0.0.10       192.168.10.10,192.168.10.20
+<2>    lb3                 tcp        30.0.0.10       192.168.10.10,192.168.10.20
 ])
 
 AT_CHECK([ovn-nbctl lr-lb-del lr0 lb0])
 AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP             IPs
 <0>    lb1                 udp        30.0.0.10:80    192.168.10.10:80,192.168.10.20:80
-<1>    lb3                 tcp/udp    30.0.0.10       192.168.10.10,192.168.10.20
+<1>    lb3                 tcp        30.0.0.10       192.168.10.10,192.168.10.20
 ])
 
 AT_CHECK([ovn-nbctl lr-lb-del lr0 lb1])
@@ -753,6 +767,14 @@ AT_CHECK([ovn-nbctl lr-lb-add lr0 lb1])
 AT_CHECK([ovn-nbctl lr-lb-add lr0 lb3])
 AT_CHECK([ovn-nbctl lr-lb-del lr0])
 AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [])])
+
+dnl Remove load balancers after adding them to a logical router/switch.
+AT_CHECK([ovn-nbctl lr-lb-add lr0 lb0])
+AT_CHECK([ovn-nbctl ls-lb-add ls0 lb1])
+AT_CHECK([ovn-nbctl lb-del lb0])
+AT_CHECK([ovn-nbctl lb-del lb1])
+AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [])
+AT_CHECK([ovn-nbctl ls-lb-list ls0 | uuidfilt], [0], [])])
 
 dnl ---------------------------------------------------------------------
 
@@ -902,8 +924,8 @@ AT_CHECK([ovn-nbctl lb-list | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP              IPs
 <0>    lb0                 tcp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
 <1>    lb1                 udp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:8080
-<2>    lb2                 tcp/udp    ae0f::30         fd0f::10
-<3>    lb3                 tcp/udp    ae0f::30         fd0f::10
+<2>    lb2                 tcp        ae0f::30         fd0f::10
+<3>    lb3                 tcp        ae0f::30         fd0f::10
 ])
 AT_CHECK([ovn-nbctl lb-del lb2 ae0f::30])
 AT_CHECK([ovn-nbctl lb-del lb3 ae0f::30])
@@ -955,14 +977,14 @@ AT_CHECK([ovn-nbctl ls-lb-list ls0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP              IPs
 <0>    lb0                 tcp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
 <1>    lb1                 udp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
-<2>    lb3                 tcp/udp    ae0f::10         fd0f::10,fd0f::20
+<2>    lb3                 tcp        ae0f::10         fd0f::10,fd0f::20
 ])
 
 AT_CHECK([ovn-nbctl ls-lb-del ls0 lb0])
 AT_CHECK([ovn-nbctl ls-lb-list ls0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP              IPs
 <0>    lb1                 udp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
-<1>    lb3                 tcp/udp    ae0f::10         fd0f::10,fd0f::20
+<1>    lb3                 tcp        ae0f::10         fd0f::10,fd0f::20
 ])
 
 AT_CHECK([ovn-nbctl ls-lb-del ls0 lb1])
@@ -991,14 +1013,14 @@ AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP              IPs
 <0>    lb0                 tcp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
 <1>    lb1                 udp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
-<2>    lb3                 tcp/udp    ae0f::10         fd0f::10,fd0f::20
+<2>    lb3                 tcp        ae0f::10         fd0f::10,fd0f::20
 ])
 
 AT_CHECK([ovn-nbctl lr-lb-del lr0 lb0])
 AT_CHECK([ovn-nbctl lr-lb-list lr0 | uuidfilt], [0], [dnl
 UUID                                    LB                  PROTO      VIP              IPs
 <0>    lb1                 udp        [[ae0f::10]]:80    [[fd0f::10]]:80,[[fd0f::20]]:80
-<1>    lb3                 tcp/udp    ae0f::10         fd0f::10,fd0f::20
+<1>    lb3                 tcp        ae0f::10         fd0f::10,fd0f::20
 ])
 
 AT_CHECK([ovn-nbctl lr-lb-del lr0 lb1])
@@ -1331,6 +1353,63 @@ IPv6 Routes
 
 dnl ---------------------------------------------------------------------
 
+OVN_NBCTL_TEST([ovn_nbctl_policies], [policies], [
+AT_CHECK([ovn-nbctl lr-add lr0])
+
+dnl Add policies with allow and drop actions
+AT_CHECK([ovn-nbctl lr-policy-add lr0 100 "ip4.src == 1.1.1.0/24" drop])
+AT_CHECK([ovn-nbctl lr-policy-add lr0 100 "ip4.src == 1.1.2.0/24" allow])
+AT_CHECK([ovn-nbctl lr-policy-add lr0 101 "ip4.src == 2.1.1.0/24" allow])
+AT_CHECK([ovn-nbctl lr-policy-add lr0 101 "ip4.src == 2.1.2.0/24" drop])
+AT_CHECK([ovn-nbctl lr-policy-add lr0 101 "ip6.src == 2002::/64" drop])
+
+dnl Add duplicated policy
+AT_CHECK([ovn-nbctl lr-policy-add lr0 100 "ip4.src == 1.1.1.0/24" drop], [1], [],
+  [ovn-nbctl: Same routing policy already existed on the logical router lr0.
+])
+
+dnl Add duplicated policy
+AT_CHECK([ovn-nbctl lr-policy-add lr0 103 "ip4.src == 1.1.1.0/24" deny], [1], [],
+  [ovn-nbctl: deny: action must be one of "allow", "drop", and "reroute"
+])
+
+dnl Delete by priority and match string
+AT_CHECK([ovn-nbctl lr-policy-del lr0 100 "ip4.src == 1.1.1.0/24"])
+AT_CHECK([ovn-nbctl lr-policy-list lr0], [0], [dnl
+Routing Policies
+       101                              ip4.src == 2.1.1.0/24           allow
+       101                              ip4.src == 2.1.2.0/24            drop
+       101                               ip6.src == 2002::/64            drop
+       100                              ip4.src == 1.1.2.0/24           allow
+])
+
+dnl Delete all policies for given priority
+AT_CHECK([ovn-nbctl lr-policy-del lr0 101])
+AT_CHECK([ovn-nbctl lr-policy-list lr0], [0], [dnl
+Routing Policies
+       100                              ip4.src == 1.1.2.0/24           allow
+])
+
+dnl Add policy with reroute action
+AT_CHECK([ovn-nbctl lr-policy-add lr0 102 "ip4.src == 3.1.2.0/24" reroute 3.3.3.3])
+
+dnl Add policy with invalid reroute ip
+AT_CHECK([ovn-nbctl lr-policy-add lr0 103 "ip4.src == 3.1.2.0/24" reroute 3.3.3.x], [1], [],
+  [ovn-nbctl: bad next hop argument: 3.3.3.x
+])
+
+dnl Add policy with reroute action
+AT_CHECK([ovn-nbctl lr-policy-add lr0 104 "ip6.src == 2001::/64" reroute 2002::5])
+
+dnl Add policy with invalid reroute ip
+AT_CHECK([ovn-nbctl lr-policy-add lr0 105 "ip6.src == 2001::/64" reroute 2002::x], [1], [],
+  [ovn-nbctl: bad next hop argument: 2002::x
+])
+
+])
+
+dnl ---------------------------------------------------------------------
+
 OVN_NBCTL_TEST([ovn_nbctl_lsp_types], [lsp types], [
 AT_CHECK([ovn-nbctl ls-add ls0])
 AT_CHECK([ovn-nbctl lsp-add ls0 lp0])
@@ -1518,7 +1597,6 @@ AT_CHECK([ovn-nbctl get Port_Group pg0 name], [0], [dnl
 "pg0"
 ])])
 
-
 OVN_NBCTL_TEST([ovn_nbctl_extra_newlines], [extra newlines], [
 dnl This test addresses a specific issue seen when running ovn-nbctl in
 dnl daemon mode. All we have to do is ensure that each time we list database
@@ -1539,3 +1617,44 @@ AT_CHECK([ovn-nbctl ls-add sw1], [0], [ignore])
 AT_CHECK([ovn-nbctl --bare --columns=name list logical_switch sw1], [0], [dnl
 sw1
 ])])
+dnl ---------------------------------------------------------------------
+
+OVN_NBCTL_TEST([ovn_nbctl_port_group_commands], [port group commands], [
+AT_CHECK([ovn-nbctl pg-add pg1], [0], [ignore])
+AT_CHECK([ovn-nbctl --bare --columns=name list port_group pg1], [0],
+[pg1
+])
+
+AT_CHECK([ovn-nbctl pg-del pg1], [0], [ignore])
+AT_CHECK([ovn-nbctl list port_group], [0], [])
+
+AT_CHECK([ovn-nbctl ls-add sw1], [0], [ignore])
+AT_CHECK([ovn-nbctl lsp-add sw1 sw1-p1], [0], [ignore])
+SW1P1=$(ovn-nbctl --bare --columns=_uuid list logical_switch_port sw1-p1)
+AT_CHECK([ovn-nbctl lsp-add sw1 sw1-p2], [0], [ignore])
+SW1P2=$(ovn-nbctl --bare --columns=_uuid list logical_switch_port sw1-p2)
+
+AT_CHECK([ovn-nbctl pg-add pg1 sw1-p1], [0], [ignore])
+AT_CHECK([ovn-nbctl --bare --columns=name list port_group pg1], [0],[dnl
+pg1
+])
+AT_CHECK_UNQUOTED([ovn-nbctl --bare --columns=ports list port_group pg1], [0], [dnl
+$SW1P1
+])
+
+AT_CHECK([ovn-nbctl pg-set-ports pg1 sw1-p2], [0], [ignore])
+AT_CHECK_UNQUOTED([ovn-nbctl --bare --columns=ports list port_group pg1], [0], [dnl
+$SW1P2
+])
+
+AT_CHECK([ovn-nbctl pg-del pg1], [0], [ignore])
+AT_CHECK([ovn-nbctl list port_group], [0], [])
+])
+
+AT_SETUP([ovn-nbctl - daemon retry connection])
+OVN_NBCTL_TEST_START daemon
+AT_CHECK([kill `cat ovsdb-server.pid`])
+AT_CHECK([ovsdb-server --detach --no-chdir --pidfile --log-file --remote=punix:$OVS_RUNDIR/ovnnb_db.sock ovn-nb.db], [0], [], [stderr])
+AT_CHECK([ovn-nbctl show], [0], [ignore])
+OVN_NBCTL_TEST_STOP /Terminated/d
+AT_CLEANUP

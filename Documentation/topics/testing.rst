@@ -90,6 +90,30 @@ report test failures as bugs and include the ``testsuite.log`` in your report.
 
       $ make check TESTSUITEFLAGS=-j8 RECHECK=yes
 
+Debugging unit tests
+++++++++++++++++++++
+
+To initiate debugging from artifacts generated from `make check` run, set the
+``OVS_PAUSE_TEST`` environment variable to 1.  For example, to run test case
+139 and pause on error::
+
+  $ OVS_PAUSE_TEST=1 make check TESTSUITEFLAGS='-v 139'
+
+When error occurs, above command would display something like this::
+
+   Set environment variable to use various ovs utilities
+   export OVS_RUNDIR=<dir>/ovs/_build-gcc/tests/testsuite.dir/0139
+   Press ENTER to continue:
+
+And from another window, one can execute ovs-xxx commands like::
+
+   export OVS_RUNDIR=/opt/vdasari/Developer/ovs/_build-gcc/tests/testsuite.dir/0139
+   $ ovs-ofctl dump-ports br0
+   .
+   .
+
+Once done with investigation, press ENTER to perform cleanup operation.
+
 .. _testing-coverage:
 
 Coverage
@@ -297,6 +321,9 @@ To invoke the datapath testsuite with the userspace datapath, run::
 
 The results of the testsuite are in ``tests/system-userspace-testsuite.dir``.
 
+All the features documented under `Unit Tests`_ are available for the userspace
+datapath testsuite.
+
 DPDK datapath
 '''''''''''''
 
@@ -314,11 +341,22 @@ To see a list of all the available tests, run::
 
     # make check-dpdk TESTSUITEFLAGS=--list
 
-These tests require a `DPDK supported NIC`_ and proper DPDK variables
-(``DPDK_DIR`` and ``DPDK_BUILD``). Moreover you need to have root privileges,
-load the required modules and bind the NIC to the DPDK-compatible driver.
+These tests support a `DPDK supported NIC`_. The tests operate on a wider set of
+environments, for instance, when a virtual port is used.
+They do require proper DPDK variables (``DPDK_DIR`` and ``DPDK_BUILD``).
+Moreover you need to have root privileges to load the required modules and to bind
+the NIC to the DPDK-compatible driver.
 
 .. _DPDK supported NIC: http://dpdk.org/doc/nics
+
+All tests are skipped if no hugepages are configured. User must look into the DPDK
+manual to figure out how to `Configure hugepages`_.
+The phy test will skip if no compatible physical device is available.
+
+.. _Configure hugepages: http://doc.dpdk.org/guides/linux_gsg/sys_reqs.html
+
+All the features documented under `Unit Tests`_ are available for the DPDK
+datapath testsuite.
 
 Kernel datapath
 '''''''''''''''
@@ -339,6 +377,9 @@ testsuite against that kernel module::
     $ make check-kmod
 
 The results of the testsuite are in ``tests/system-kmod-testsuite.dir``.
+
+All the features documented under `Unit Tests`_ are available for the kernel
+datapath testsuite.
 
 .. _testing-static-analysis:
 

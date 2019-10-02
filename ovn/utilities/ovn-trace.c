@@ -35,8 +35,8 @@
 #include "ovn/actions.h"
 #include "ovn/expr.h"
 #include "ovn/lex.h"
+#include "ovn/logical-fields.h"
 #include "ovn/lib/acl-log.h"
-#include "ovn/lib/logical-fields.h"
 #include "ovn/lib/ovn-l7.h"
 #include "ovn/lib/ovn-sb-idl.h"
 #include "ovn/lib/ovn-util.h"
@@ -46,6 +46,7 @@
 #include "stream.h"
 #include "unixctl.h"
 #include "util.h"
+#include "random.h"
 
 VLOG_DEFINE_THIS_MODULE(ovntrace);
 
@@ -76,6 +77,9 @@ static struct vconn *vconn;
 static uint32_t *ct_states;
 static size_t n_ct_states;
 static size_t ct_state_idx;
+
+/* --lb-dst: load balancer destination info. */
+static struct ovnact_ct_lb_dst lb_dst;
 
 /* --friendly-names, --no-friendly-names: Whether to substitute human-friendly
  * port and datapath names for the awkward UUIDs typically used in the actual
@@ -187,6 +191,24 @@ parse_ct_option(const char *state_s_)
 }
 
 static void
+parse_lb_option(const char *s)
+{
+    struct sockaddr_storage ss;
+    if (!inet_parse_active(s, 0, &ss, false)) {
+        ovs_fatal(0, "%s: bad address", s);
+    }
+
+    lb_dst.family = ss.ss_family;
+    struct in6_addr a = ss_get_address(&ss);
+    if (ss.ss_family == AF_INET) {
+        lb_dst.ipv4 = in6_addr_get_mapped_ipv4(&a);
+    } else {
+        lb_dst.ipv6 = a;
+    }
+    lb_dst.port = ss_get_port(&ss);
+}
+
+static void
 parse_options(int argc, char *argv[])
 {
     enum {
@@ -202,7 +224,8 @@ parse_options(int argc, char *argv[])
         OPT_NO_FRIENDLY_NAMES,
         DAEMON_OPTION_ENUMS,
         SSL_OPTION_ENUMS,
-        VLOG_OPTION_ENUMS
+        VLOG_OPTION_ENUMS,
+        OPT_LB_DST
     };
     static const struct option long_options[] = {
         {"db", required_argument, NULL, OPT_DB},
@@ -217,6 +240,7 @@ parse_options(int argc, char *argv[])
         {"no-friendly-names", no_argument, NULL, OPT_NO_FRIENDLY_NAMES},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
+        {"lb-dst", required_argument, NULL, OPT_LB_DST},
         DAEMON_LONG_OPTIONS,
         VLOG_LONG_OPTIONS,
         STREAM_SSL_LONG_OPTIONS,
@@ -272,6 +296,10 @@ parse_options(int argc, char *argv[])
 
         case OPT_NO_FRIENDLY_NAMES:
             use_friendly_names = false;
+            break;
+
+        case OPT_LB_DST:
+            parse_lb_option(optarg);
             break;
 
         case 'h':
@@ -617,6 +645,15 @@ read_ports(void)
         } else if (!strcmp(sbpb->type, "l3gateway")) {
             /* Treat all gateways as local for our purposes. */
             dp->has_local_l3gateway = true;
+            const char *peer_name = smap_get(&sbpb->options, "peer");
+            if (peer_name) {
+                struct ovntrace_port *peer
+                    = shash_find_data(&ports, peer_name);
+                if (peer) {
+                    port->peer = peer;
+                    port->peer->peer = port;
+                }
+            }
         }
     }
 
@@ -813,7 +850,7 @@ read_flows(void)
         char *error;
         struct expr *match;
         match = expr_parse_string(sblf->match, &symtab, &address_sets,
-                                  &port_groups, &error);
+                                  &port_groups, NULL, &error);
         if (error) {
             VLOG_WARN("%s: parsing expression failed (%s)",
                       sblf->match, error);
@@ -1823,6 +1860,71 @@ execute_ct_nat(const struct ovnact_ct_nat *ct_nat,
 }
 
 static void
+execute_ct_lb(const struct ovnact_ct_lb *ct_lb,
+              const struct ovntrace_datapath *dp, struct flow *uflow,
+              enum ovnact_pipeline pipeline, struct ovs_list *super)
+{
+    struct flow ct_lb_flow = *uflow;
+
+    int family = (ct_lb_flow.dl_type == htons(ETH_TYPE_IP) ? AF_INET
+                  : ct_lb_flow.dl_type == htons(ETH_TYPE_IPV6) ? AF_INET6
+                  : AF_UNSPEC);
+    if (family != AF_UNSPEC) {
+        const struct ovnact_ct_lb_dst *dst = NULL;
+        if (ct_lb->n_dsts) {
+            /* For ct_lb with addresses, choose one of the addresses. */
+            int n = 0;
+            for (int i = 0; i < ct_lb->n_dsts; i++) {
+                const struct ovnact_ct_lb_dst *d = &ct_lb->dsts[i];
+                if (d->family != family) {
+                    continue;
+                }
+
+                /* Check for the destination specified by --lb-dst, if any. */
+                if (lb_dst.family == family
+                    && (family == AF_INET
+                        ? d->ipv4 == lb_dst.ipv4
+                        : ipv6_addr_equals(&d->ipv6, &lb_dst.ipv6))) {
+                    lb_dst.family = AF_UNSPEC;
+                    dst = d;
+                    break;
+                }
+
+                /* Select a random destination as a fallback. */
+                if (!random_range(++n)) {
+                    dst = d;
+                }
+            }
+
+            if (!dst) {
+                ovntrace_node_append(super, OVNTRACE_NODE_ERROR,
+                                     "*** no load balancing destination "
+                                     "(use --lb-dst)");
+            }
+        } else if (lb_dst.family == family) {
+            /* For ct_lb without addresses, use user-specified address. */
+            dst = &lb_dst;
+        }
+
+        if (dst) {
+            if (family == AF_INET6) {
+                ct_lb_flow.ipv6_dst = dst->ipv6;
+            } else {
+                ct_lb_flow.nw_dst = dst->ipv4;
+            }
+            if (dst->port) {
+                ct_lb_flow.tp_dst = htons(dst->port);
+            }
+            ct_lb_flow.ct_state |= CS_DST_NAT;
+        }
+    }
+
+    struct ovntrace_node *node = ovntrace_node_append(
+        super, OVNTRACE_NODE_TRANSFORMATION, "ct_lb");
+    trace__(dp, &ct_lb_flow, ct_lb->ltable, pipeline, &node->subs);
+}
+
+static void
 execute_log(const struct ovnact_log *log, struct flow *uflow,
             struct ovs_list *super)
 {
@@ -1834,6 +1936,25 @@ execute_log(const struct ovnact_log *log, struct flow *uflow,
                     log_severity_to_string(log->severity),
                     packet_str);
     free(packet_str);
+}
+
+static void
+execute_ovnfield_load(const struct ovnact_load *load,
+                      struct ovs_list *super)
+{
+    const struct ovn_field *f = ovn_field_from_name(load->dst.symbol->name);
+    switch (f->id) {
+    case OVN_ICMP4_FRAG_MTU: {
+        ovntrace_node_append(super, OVNTRACE_NODE_MODIFY,
+                             "icmp4.frag_mtu = %u",
+                             ntohs(load->imm.value.be16_int));
+        break;
+    }
+
+    case OVN_FIELD_N_IDS:
+    default:
+        OVS_NOT_REACHED();
+    }
 }
 
 static void
@@ -1910,8 +2031,7 @@ trace_actions(const struct ovnact *ovnacts, size_t ovnacts_len,
             break;
 
         case OVNACT_CT_LB:
-            ovntrace_node_append(super, OVNTRACE_NODE_ERROR,
-                                 "*** ct_lb action not implemented");
+            execute_ct_lb(ovnact_get_CT_LB(a), dp, uflow, pipeline, super);
             break;
 
         case OVNACT_CT_CLEAR:
@@ -1996,17 +2116,38 @@ trace_actions(const struct ovnact *ovnacts, size_t ovnacts_len,
                           super);
             break;
 
+        case OVNACT_ICMP4_ERROR:
+            execute_icmp4(ovnact_get_ICMP4_ERROR(a), dp, uflow, table_id,
+                          pipeline, super);
+            break;
+
         case OVNACT_ICMP6:
             execute_icmp6(ovnact_get_ICMP6(a), dp, uflow, table_id, pipeline,
                           super);
+            break;
+
+        case OVNACT_IGMP:
+            /* Nothing to do for tracing. */
             break;
 
         case OVNACT_TCP_RESET:
             execute_tcp_reset(ovnact_get_TCP_RESET(a), dp, uflow, table_id,
                               pipeline, super);
             break;
-        }
 
+        case OVNACT_OVNFIELD_LOAD:
+            execute_ovnfield_load(ovnact_get_OVNFIELD_LOAD(a), super);
+            break;
+
+        case OVNACT_TRIGGER_EVENT:
+            break;
+
+        case OVNACT_CHECK_PKT_LARGER:
+            break;
+
+        case OVNACT_BIND_VPORT:
+            break;
+        }
     }
     ds_destroy(&s);
 }
@@ -2143,7 +2284,7 @@ trace(const char *dp_s, const char *flow_s)
     ds_put_char(&output, '\n');
 
     if (ovs) {
-        int retval = vconn_open_block(ovs, 1 << OFP13_VERSION, 0, &vconn);
+        int retval = vconn_open_block(ovs, 1 << OFP13_VERSION, 0, -1, &vconn);
         if (retval) {
             VLOG_WARN("%s: connection failed (%s)", ovs, ovs_strerror(retval));
         }

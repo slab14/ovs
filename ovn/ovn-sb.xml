@@ -162,7 +162,45 @@
       <column name="external_ids">
         See <em>External IDs</em> at the beginning of this document.
       </column>
+
+      <column name="options">
+      </column>
     </group>
+
+    <group title="Common options">
+      <column name="options">
+        This column provides general key/value settings. The supported
+        options are described individually below.
+      </column>
+
+      <group title="Options for configuring BFD">
+        <p>
+          These options apply when <code>ovn-controller</code> configures
+          BFD on tunnels interfaces.
+        </p>
+
+        <column name="options" key="bfd-min-rx">
+          BFD option <code>min-rx</code> value to use when configuring BFD on
+          tunnel interfaces.
+        </column>
+
+        <column name="options" key="bfd-decay-min-rx">
+          BFD option <code>decay-min-rx</code> value to use when configuring
+          BFD on tunnel interfaces.
+        </column>
+
+        <column name="options" key="bfd-min-tx">
+          BFD option <code>min-tx</code> value to use when configuring BFD on
+          tunnel interfaces.
+        </column>
+
+        <column name="options" key="bfd-mult">
+          BFD option <code>mult</code> value to use when configuring BFD on
+          tunnel interfaces.
+        </column>
+      </group>
+    </group>
+
     <group title="Connection Options">
       <column name="connections">
         Database clients to which the Open vSwitch database server should
@@ -172,6 +210,12 @@
       </column>
       <column name="ssl">
         Global SSL configuration.
+      </column>
+    </group>
+    <group title="Security Configurations">
+      <column name="ipsec">
+        Tunnel encryption configuration. If this column is set to be true, all
+        OVN tunnels will be encrypted with IPsec.
       </column>
     </group>
   </table>
@@ -249,6 +293,22 @@
       See <code>ovn-controller</code>(8) for more information.
     </column>
 
+    <column name="transport_zones">
+      <code>ovn-controller</code> populates this key with the transport
+      zones configured in the <ref table="Open_vSwitch"
+      column="external_ids:ovn-transport-zones"/> column of the Open_vSwitch
+      database's <ref table="Open_vSwitch" db="Open_vSwitch"/> table.
+      See <code>ovn-controller</code>(8) for more information.
+    </column>
+
+    <column name="external_ids" key="ovn-chassis-mac-mappings">
+      <code>ovn-controller</code> populates this key with the set of options
+      configured in the <ref table="Open_vSwitch"
+      column="external_ids:ovn-chassis-mac-mappings"/> column of the
+      Open_vSwitch database's <ref table="Open_vSwitch" db="Open_vSwitch"/>
+      table. See <code>ovn-controller</code>(8) for more information.
+    </column>
+
     <group title="Common Columns">
       The overall purpose of these columns is described under <code>Common
       Columns</code> at the beginning of this document.
@@ -310,14 +370,14 @@
     </column>
 
     <column name="options">
-      <p>
-        Options for configuring the encapsulation. Currently, the only
-        option that has been defined is <code>csum</code>.
-      </p>
+      Options for configuring the encapsulation, which may be <ref column="type"/> specific.
+    </column>
 
+    <column name="options" key="csum" type='{"type": "boolean"}'>
       <p>
-        <code>csum</code> indicates that encapsulation checksums can be
-        transmitted and received with reasonable performance. It is a hint
+        <code>csum</code> indicates whether this chassis can transmit and
+        receive packets that include checksums with reasonable performance.  It
+        hints
         to senders transmitting data to this chassis that they should use
         checksums to protect OVN metadata. <code>ovn-controller</code>
         populates this key with the value defined in
@@ -328,7 +388,7 @@
       </p>
 
       <p>
-        In terms of performance, this actually significantly increases
+        In terms of performance, checksumming actually significantly increases
         throughput in most common cases when running on Linux based hosts
         without NICs supporting encapsulation hardware offload (around 60% for
         bulk traffic). The reason is that generally all NICs are capable of
@@ -347,7 +407,7 @@
         efficiently compute or validate full packet checksums. In addition
         certain versions of the Linux kernel are not able to fully take
         advantage of encapsulation NIC offloads in the presence of checksums.
-        (This is actually a pretty narrow corner case though - earlier
+        (This is actually a pretty narrow corner case though: earlier
         versions of Linux don't support encapsulation offloads at all and
         later versions support both offloads and checksums well.)
       </p>
@@ -355,6 +415,18 @@
       <p>
         <code>csum</code> defaults to <code>false</code> for hardware VTEPs and
         <code>true</code> for all other cases.
+      </p>
+
+      <p>
+        This option applies to <code>geneve</code> and <code>vxlan</code>
+        encapsulations.
+      </p>
+    </column>
+
+    <column name="options" key="dst_port" type='{"type": "integer"}'>
+      <p>
+        If set, overrides the UDP (for <code>geneve</code> and
+        <code>vxlan</code>) or TCP (for <code>stt</code>) destination port.
       </p>
     </column>
 
@@ -1059,6 +1131,39 @@
           </p>
         </dd>
 
+        <dt><code><var>ovn_field</var> = <var>constant</var>;</code></dt>
+        <dd>
+          <p>
+            Sets OVN field <var>ovn_field</var> to constant value
+            <var>constant</var>.
+          </p>
+
+          <p>
+            <code>OVN</code> supports setting the values of certain fields
+            which are not yet supported in OpenFlow to set or modify them.
+          </p>
+
+          <p>
+            Below are the supported <code>OVN fields</code>:
+          </p>
+
+          <ul>
+            <li>
+              <code>icmp4.frag_mtu</code>
+              <p>
+                This field sets the low-order 16 bits of the ICMP4 header field
+                that is labelled "unused" in the ICMP specification as defined
+                in the RFC 1191 with the value specified in
+                <var>constant</var>.
+              </p>
+
+              <p>
+                Eg. icmp4.frag_mtu = 1500;
+              </p>
+            </li>
+          </ul>
+        </dd>
+
         <dt><code><var>field1</var> = <var>field2</var>;</code></dt>
         <dd>
           <p>
@@ -1722,6 +1827,27 @@
 
           <p><b>Example:</b> <code>set_meter(100, 1000);</code></p>
         </dd>
+
+        <dt><code><var>R</var> = check_pkt_larger(<var>L</var>)</code></dt>
+        <dd>
+          <p>
+            <b>Parameters</b>: packet length <var>L</var> to check for
+            in bytes.
+          </p>
+
+          <p>
+            <b>Result</b>: stored to a 1-bit subfield <var>R</var>.
+          </p>
+
+          <p>
+            This is a logical equivalent of the OpenFlow
+            <code>check_pkt_larger</code> action. If the packet is larger
+            than the length specified in <var>L</var>, it stores 1 in the
+            subfield <var>R</var>.
+          </p>
+
+          <p><b>Example: </b><code>reg0[6] = check_pkt_larger(1000);</code></p>
+        </dd>
       </dl>
 
       <dl>
@@ -1774,26 +1900,24 @@
         </dd>
       </dl>
 
-      <p>
-        The following actions will likely be useful later, but they have not
-        been thought out carefully.
-      </p>
-
       <dl>
         <dt><code>icmp4 { <var>action</var>; </code>...<code> };</code></dt>
+        <dt>
+          <code>icmp4_error { <var>action</var>; </code>...<code> };</code>
+        </dt>
         <dd>
           <p>
             Temporarily replaces the IPv4 packet being processed by an ICMPv4
             packet and executes each nested <var>action</var> on the ICMPv4
-            packet.  Actions following the <var>icmp4</var> action, if any,
+            packet.  Actions following these actions, if any,
             apply to the original, unmodified packet.
           </p>
 
           <p>
-            The ICMPv4 packet that this action operates on is initialized based
-            on the IPv4 packet being processed, as follows.  These are default
-            values that the nested actions will probably want to change.
-            Ethernet and IPv4 fields not listed here are not changed:
+            The ICMPv4 packet that these actions operates on is initialized
+            based on the IPv4 packet being processed, as follows.  These are
+            default values that the nested actions will probably want to
+            change. Ethernet and IPv4 fields not listed here are not changed:
           </p>
 
           <ul>
@@ -1804,6 +1928,13 @@
             <li><code>icmp4.code = 1</code> (host unreachable)</li>
           </ul>
 
+          <p>
+              <code>icmp4_error</code> action is expected to be used to
+              generate an ICMPv4 packet in response to an error in original
+              IP packet. When this action generates the ICMPv4 packet, it
+              also copies the original IP datagram following the ICMPv4 header
+              as per RFC 1122: 3.2.2.
+          </p>
           <p><b>Prerequisite:</b> <code>ip4</code></p>
         </dd>
 
@@ -1856,6 +1987,53 @@ tcp.flags = RST;
           </p>
 
           <p><b>Prerequisite:</b> <code>tcp</code></p>
+        </dd>
+
+        <dt><code>trigger_event;</code></dt>
+        <dd>
+          <p>
+            This action is used to allow ovs-vswitchd to report CMS related
+            events writing them in <ref table="Controller_Event"/> table.
+            Supported event:
+          </p>
+
+          <ul>
+            <li>
+              <p>
+                <dfn>empty_lb_backends</dfn>. This event is raised if a
+                received packet is destined for a load balancer VIP that has
+                no configured backend destinations. For this event, the event
+                info includes the load balancer VIP, the load balancer UUID,
+                and the transport protocol.
+              </p>
+            </li>
+          </ul>
+        </dd>
+        <dt><code>igmp;</code></dt>
+        <dd>
+          <p>
+            This action sends the packet to <code>ovn-controller</code> for
+            multicast snooping.
+          </p>
+          <p><b>Prerequisite:</b> <code>igmp</code></p>
+        </dd>
+
+        <dt><code>bind_vport(<var>V</var>, <var>P</var>);</code></dt>
+        <dd>
+          <p>
+            <b>Parameters</b>: logical port string field <var>V</var>
+            of type <code>virtual</code>, logical port string field
+            <var>P</var>.
+          </p>
+
+          <p>
+            Binds the virtual logical port <var>V</var> and sets the
+            <ref table="Port_Binding" column="chassis"/> column and
+            <ref table="Port_Binding" column="virtual_parent"/> of
+            the table <ref table="Port_Binding"/>.
+            <ref table="Port_Binding" column="virtual_parent"/> is
+            set to <var>P</var>.
+          </p>
         </dd>
       </dl>
     </column>
@@ -2140,6 +2318,12 @@ tcp.flags = RST;
         logical port ID.
       </column>
 
+      <column name="encap">
+        Points to supported encapsulation configurations to transmit
+        logical dataplane packets to this chassis.  Each entry is a <ref
+        table="Encap"/> record that describes the configuration.
+      </column>
+
       <column name="chassis">
         The meaning of this column depends on the value of the <ref column="type"/>
         column.  This is the meaning for each <ref column="type"/>
@@ -2198,6 +2382,16 @@ tcp.flags = RST;
           <ref column="type"/> set to <code>chassisredirect</code>.
           This column defines the list of chassis used as gateways where
           traffic will be redirected through.
+        </p>
+      </column>
+
+      <column name="ha_chassis_group">
+        <p>
+          This should only be populated for ports with
+          <ref column="type"/> set to <code>chassisredirect</code>.
+          This column defines the HA chassis group with a list of
+          HA chassis used as gateways where traffic will be redirected
+          through.
         </p>
       </column>
 
@@ -2303,6 +2497,13 @@ tcp.flags = RST;
             egress pipeline.  At the beginning of the egress pipeline,
             the <code>outport</code> will be reset to the value of the
             distributed port.
+          </dd>
+
+          <dt><code>virtual</code></dt>
+          <dd>
+            Represents a logical port with an <code>virtual ip</code>.
+            This <code>virtual ip</code> can be configured on a
+            logical port (which is refered as virtual parent).
           </dd>
         </dl>
       </column>
@@ -2540,6 +2741,27 @@ tcp.flags = RST;
           This column is used for a different purpose when <ref column="type"/>
           is <code>localnet</code> (see <code>Localnet Options</code>, above)
           or <code>l2gateway</code> (see <code>L2 Gateway Options</code>, above).
+        </p>
+      </column>
+    </group>
+
+    <group title="Virtual ports">
+      <column name="virtual_parent">
+        <p>
+          This column is set by <code>ovn-controller</code> with one of the
+          value from the
+          <ref table="Logical_Switch_Port" column="options:virtual-parents"
+          db="OVN_Northbound"/> in the OVN_Northbound database's
+          <ref table="Logical_Switch_Port" db="OVN_Northbound"/> table
+          when the OVN action <code>bind_vport</code> is executed.
+          <code>ovn-controller</code> also sets the
+          <ref column="chassis"/> column when it executes this action
+          with its chassis id.
+        </p>
+
+        <p>
+          <code>ovn-controller</code> sets this column only if the
+          <ref column="type"/> is "virtual".
         </p>
       </column>
     </group>
@@ -3293,5 +3515,170 @@ tcp.flags = RST;
 
       <column name="external_ids"/>
     </group>
+  </table>
+
+  <table name="HA_Chassis">
+    <column name="chassis">
+      <p>
+        The <ref table="Chassis"/> which provides the HA functionality.
+        </p>
+    </column>
+
+    <column name="priority">
+      <p>
+        Priority of the HA chassis. Chassis with highest priority will be
+        the master in the HA chassis group.
+      </p>
+    </column>
+
+    <group title="Common Columns">
+      <column name="external_ids">
+        See <em>External IDs</em> at the beginning of this document.
+      </column>
+    </group>
+  </table>
+
+  <table name="HA_Chassis_Group">
+    <p>
+      Table representing a group of chassis which can provide High availability
+      services. Each chassis in the group is represented by the table
+      <ref table="HA_Chassis"/>. The HA chassis with highest priority will
+      be the master of this group. If the master chassis failover is detected,
+      the HA chassis with the next higher priority takes over the
+      responsibility of providing the HA. If <ref db="OVN_Southbound"
+      table="Port_Binding" column="ha_chassis_group"/> column of the table
+      <ref db="OVN_Southbound" table="Port_Binding"/> references this table,
+      then this HA chassis group provides the gateway functionality and
+      redirects the gateway traffic to the master of this group.
+    </p>
+    <column name="name">
+      Name of the <ref table="HA_Chassis_Group"/>. Name should be unique.
+    </column>
+
+    <column name="ha_chassis">
+      A list of <ref table="HA_Chassis"/> which belongs to this group.
+    </column>
+
+    <column name="ref_chassis">
+      A list of <ref table="chassis"/> which references this HA chassis group.
+    </column>
+
+    <group title="Common Columns">
+      <column name="external_ids">
+        See <em>External IDs</em> at the beginning of this document.
+      </column>
+    </group>
+  </table>
+  <table name="Controller_Event" title="Controller Event table">
+    <p>
+      Database table used by <code>ovn-controller</code> to report CMS
+      related events. Please note there is no guarantee a given event is
+      written exactly once in the db. It is CMS responsibility to squash
+      duplicated lines or to filter out duplicated events
+    </p>
+    <column name="event_type">
+      Event type occurred
+    </column>
+    <column name="event_info">
+    <p>
+      Key-value pairs used to specify event info to the CMS.
+      Possible values are:
+    </p>
+      <ul>
+        <li>
+         <code>vip</code>: VIP reported for the <code>empty_lb_backends</code>
+         event
+        </li>
+        <li>
+          <code>protocol</code>: Transport protocol reported for the
+          <code>empty_lb_backends</code> event
+        </li>
+        <li>
+          <code>load_balancer</code>: UUID of the load balancer reported for
+          the <code>empty_lb_backends</code> event
+        </li>
+      </ul>
+    </column>
+    <column name="chassis">
+      This column is a <ref table="Chassis"/> record to identify the chassis
+      that has managed a given event.
+    </column>
+    <column name="seq_num">
+      Event sequence number. Global counter for controller generated events.
+      It can be used by the CMS to detect possible duplication of the same
+      event.
+    </column>
+  </table>
+  <table name="IP_Multicast">
+    <p>
+      IP Multicast configuration options. For now only applicable to IGMP.
+    </p>
+
+    <column name="datapath">
+      <ref table="Datapath_Binding"/> entry for which these configuration
+      options are defined.
+    </column>
+    <column name="enabled">
+      Enables/disables multicast snooping. Default: disabled.
+    </column>
+    <column name="querier">
+      Enables/disables multicast querying. If
+      <ref table="IP_Multicast" column="enabled"/> then multicast querying is
+      enabled by default.
+    </column>
+    <column name="table_size">
+      Limits the number of multicast groups that can be learned. Default:
+      2048 groups per datapath.
+    </column>
+    <column name="idle_timeout">
+      Configures the idle timeout (in seconds) for IP multicast groups if
+      multicast snooping is enabled. Default: 300 seconds.
+    </column>
+    <column name="query_interval">
+      Configures the interval (in seconds) for sending multicast queries if
+      snooping and querier are enabled.
+      Default: <ref table="IP_Multicast" column="idle_timeout"/>/2 seconds.
+    </column>
+    <column name="seq_no">
+      <code>ovn-controller</code> reads this value and flushes all learned
+      multicast groups when it detects that <code>seq_no</code> was changed.
+    </column>
+
+    <group title="Querier configuration options">
+      The <code>ovn-controller</code> process that runs on OVN hypervisor
+      nodes uses the following columns to determine field values in IGMP
+      queries that it originates:
+      <column name="eth_src">
+        Source Ethernet address.
+      </column>
+      <column name="ip4_src">
+        Source IPv4 address.
+      </column>
+      <column name="query_max_resp">
+        Value (in seconds) to be used as "max-response" field in multicast
+        queries. Default: 1 second.
+      </column>
+    </group>
+  </table>
+  <table name="IGMP_Group">
+    <p>
+      Contains learned IGMP groups indexed by address/datapath/chassis.
+    </p>
+
+    <column name="address">
+      Destination IPv4 address for the IGMP group.
+    </column>
+
+    <column name="datapath">
+      Datapath to which this IGMP group belongs.
+    </column>
+
+    <column name="chassis">
+      Chassis to which this IGMP group belongs.
+    </column>
+
+    <column name="ports">
+      The destination port bindings for this IGMP group.
+    </column>
   </table>
 </database>

@@ -53,10 +53,12 @@ This is the current list of active Open vSwitch committers:
      - blp@ovn.org
    * - Daniele Di Proietto
      - daniele.di.proietto@gmail.com
-   * - Ethan J. Jackson
-     - ejj@eecs.berkeley.edu
    * - Gurucharan Shetty
      - guru@ovn.org
+   * - Ian Stokes
+     - istokes@ovn.org
+   * - Ilya Maximets
+     - i.maximets@samsung.com
    * - Jarno Rajahalme
      - jarno@ovn.org
    * - Jesse Gross
@@ -85,5 +87,5 @@ More information about Emeritus Committers can be found
 
    * - Name
      - Email
-   * -
-     -
+   * - Ethan J. Jackson
+     - ejj@eecs.berkeley.edu

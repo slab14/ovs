@@ -1,8 +1,10 @@
 # -*- shell-script -*-
 HAVE_OPENSSL='@HAVE_OPENSSL@'
+OPENSSL_SUPPORTS_SNI='@OPENSSL_SUPPORTS_SNI@'
 HAVE_PYTHON='@HAVE_PYTHON@'
 HAVE_PYTHON2='@HAVE_PYTHON2@'
 HAVE_PYTHON3='@HAVE_PYTHON3@'
+HAVE_UNBOUND='@HAVE_UNBOUND@'
 EGREP='@EGREP@'
 
 if test x"$PYTHON" = x; then
@@ -78,8 +80,11 @@ FreeBSD)
     [789].*)
         MALLOC_CONF=AJ
         ;;
-    *)
+    1[01].*)
         MALLOC_CONF=abort:true,junk:true,redzone:true
+        ;;
+    *)
+        MALLOC_CONF=abort:true,junk:true
         ;;
     esac
     export MALLOC_CONF
@@ -97,7 +102,7 @@ esac
 
 # Check for platform.
 case `uname` in
-MINGW*)
+MINGW*|MSYS*)
     IS_WIN32="yes"
     IS_BSD="no"
     ;;
@@ -215,3 +220,19 @@ unset NO_PROXY
 # Avoid OVN environment variables leaking in from external environment.
 unset OVN_NB_DB
 unset OVN_SB_DB
+
+# Prevent logging to syslog during tests.
+OVS_SYSLOG_METHOD=null
+export OVS_SYSLOG_METHOD
+
+# Set default timeout for control utils
+OVS_CTL_TIMEOUT=30
+export OVS_CTL_TIMEOUT
+
+# Add some default flags to make the tests run better under Address
+# Sanitizer, if it was used for the build.
+#
+# We disable leak detection because otherwise minor leaks that don't
+# matter break everything.
+ASAN_OPTIONS=detect_leaks=0:abort_on_error=true:log_path=asan:$ASAN_OPTIONS
+export ASAN_OPTIONS

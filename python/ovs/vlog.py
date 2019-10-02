@@ -142,7 +142,7 @@ class Vlog(object):
         return re.sub(match, replace.replace('\\', r'\\'), tmp)
 
     def _format_time(self, tmp):
-        date_regex = re.compile('(%(0?[1-9]?[dD])(\{(.*)\})?)')
+        date_regex = re.compile(r'(%(0?[1-9]?[dD])(\{(.*)\})?)')
         match = date_regex.search(tmp)
 
         if match is None:
@@ -305,6 +305,11 @@ class Vlog(object):
             return
 
         logger = logging.getLogger('syslog')
+        # Disable the logger if the "null" syslog method requested
+        # by environment.
+        if os.environ.get('OVS_SYSLOG_METHOD') == "null":
+            logger.disabled = True
+            return
 
         if facility is None:
             facility = syslog_facility

@@ -101,7 +101,8 @@ struct ofbundle {
     unsigned long *cvlans;
     struct lacp *lacp;          /* LACP if LACP is enabled, otherwise NULL. */
     struct bond *bond;          /* Nonnull iff more than one port. */
-    bool use_priority_tags;     /* Use 802.1p tag for frames in VLAN 0? */
+    enum port_priority_tags_mode use_priority_tags;
+                                /* Use 802.1p tag for frames in VLAN 0? */
 
     bool protected;             /* Protected port mode */
 
@@ -137,7 +138,6 @@ struct ofport_dpif {
     struct cfm *cfm;            /* Connectivity Fault Management, if any. */
     struct bfd *bfd;            /* BFD, if any. */
     struct lldp *lldp;          /* lldp, if any. */
-    bool may_enable;            /* May be enabled in bonds. */
     bool is_tunnel;             /* This port is a tunnel. */
     long long int carrier_seq;  /* Carrier status changes. */
     struct ofport_dpif *peer;   /* Peer if patch port. */
@@ -479,7 +479,7 @@ type_run(const char *type)
                                  ofport->rstp_port, ofport->qdscp,
                                  ofport->n_qdscp, ofport->up.pp.config,
                                  ofport->up.pp.state, ofport->is_tunnel,
-                                 ofport->may_enable);
+                                 ofport->up.may_enable);
             }
         }
         xlate_txn_commit();
@@ -1291,6 +1291,48 @@ check_ct_clear(struct dpif_backer *backer)
     return supported;
 }
 
+
+/* Tests whether 'backer''s datapath supports the
+ * OVS_ACTION_ATTR_CHECK_PKT_LEN action. */
+static bool
+check_check_pkt_len(struct dpif_backer *backer)
+{
+    struct odputil_keybuf keybuf;
+    struct ofpbuf actions;
+    struct ofpbuf key;
+    struct flow flow;
+    bool supported;
+
+    struct odp_flow_key_parms odp_parms = {
+        .flow = &flow,
+        .probe = true,
+    };
+
+    memset(&flow, 0, sizeof flow);
+    ofpbuf_use_stack(&key, &keybuf, sizeof keybuf);
+    odp_flow_key_from_flow(&odp_parms, &key);
+    ofpbuf_init(&actions, 64);
+    size_t cpl_start;
+
+    cpl_start = nl_msg_start_nested(&actions, OVS_ACTION_ATTR_CHECK_PKT_LEN);
+    nl_msg_put_u16(&actions, OVS_CHECK_PKT_LEN_ATTR_PKT_LEN, 100);
+
+    /* Putting these actions without any data is good enough to check
+     * if check_pkt_len is supported or not. */
+    nl_msg_put_flag(&actions, OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER);
+    nl_msg_put_flag(&actions, OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL);
+
+    nl_msg_end_nested(&actions, cpl_start);
+
+    supported = dpif_probe_feature(backer->dpif, "check_pkt_len", &key,
+                                   &actions, NULL);
+    ofpbuf_uninit(&actions);
+    VLOG_INFO("%s: Datapath %s check_pkt_len action",
+              dpif_name(backer->dpif), supported ? "supports"
+                                                 : "does not support");
+    return supported;
+}
+
 /* Probe the highest dp_hash algorithm supported by the datapath. */
 static size_t
 check_max_dp_hash_alg(struct dpif_backer *backer)
@@ -1398,6 +1440,7 @@ check_support(struct dpif_backer *backer)
     backer->rt_support.ct_eventmask = check_ct_eventmask(backer);
     backer->rt_support.ct_clear = check_ct_clear(backer);
     backer->rt_support.max_hash_alg = check_max_dp_hash_alg(backer);
+    backer->rt_support.check_pkt_len = check_check_pkt_len(backer);
 
     /* Flow fields. */
     backer->rt_support.odp.ct_state = check_ct_state(backer);
@@ -1848,7 +1891,6 @@ port_construct(struct ofport *port_)
     port->cfm = NULL;
     port->bfd = NULL;
     port->lldp = NULL;
-    port->may_enable = false;
     port->stp_port = NULL;
     port->stp_state = STP_DISABLED;
     port->rstp_port = NULL;
@@ -1923,6 +1965,7 @@ port_destruct(struct ofport *port_, bool del)
     struct ofport_dpif *port = ofport_dpif_cast(port_);
     struct ofproto_dpif *ofproto = ofproto_dpif_cast(port->up.ofproto);
     const char *devname = netdev_get_name(port->up.netdev);
+    const char *netdev_type = netdev_get_type(port->up.netdev);
     char namebuf[NETDEV_VPORT_NAME_BUFSIZE];
     const char *dp_port_name;
 
@@ -1930,6 +1973,13 @@ port_destruct(struct ofport *port_, bool del)
     xlate_txn_start();
     xlate_ofport_remove(port);
     xlate_txn_commit();
+
+    if (!del && strcmp(netdev_type,
+                       ofproto_port_open_type(port->up.ofproto, "internal"))) {
+        /* Check if datapath requires removal of attached ports.  Avoid
+         * removal of 'internal' ports to preserve user ip/route settings. */
+        del = dpif_cleanup_required(ofproto->backer->dpif);
+    }
 
     dp_port_name = netdev_vport_get_dpif_port(port->up.netdev, namebuf,
                                               sizeof namebuf);
@@ -2005,16 +2055,6 @@ port_modified(struct ofport *port_)
         bfd_set_netdev(port->bfd, netdev);
     }
 
-    /* Set liveness, unless the link is administratively or
-     * operationally down or link monitoring false */
-    if (!(port->up.pp.config & OFPUTIL_PC_PORT_DOWN) &&
-        !(port->up.pp.state & OFPUTIL_PS_LINK_DOWN) &&
-        port->may_enable) {
-        port->up.pp.state |= OFPUTIL_PS_LIVE;
-    } else {
-        port->up.pp.state &= ~OFPUTIL_PS_LIVE;
-    }
-
     ofproto_dpif_monitor_port_update(port, port->bfd, port->cfm,
                                      port->lldp, &port->up.pp.hw_addr);
 
@@ -2049,6 +2089,7 @@ port_reconfigured(struct ofport *port_, enum ofputil_port_config old_config)
             bundle_update(port->bundle);
         }
     }
+    port_run(port);
 }
 
 static int
@@ -2792,7 +2833,7 @@ set_rstp_port(struct ofport *ofport_,
                   ofport, netdev_get_name(ofport->up.netdev));
     update_rstp_port_state(ofport);
     /* Synchronize operational status. */
-    rstp_port_set_mac_operational(rp, ofport->may_enable);
+    rstp_port_set_mac_operational(rp, ofport->up.may_enable);
 }
 
 static void
@@ -3341,7 +3382,7 @@ bundle_run(struct ofbundle *bundle)
         struct ofport_dpif *port;
 
         LIST_FOR_EACH (port, bundle_node, &bundle->ports) {
-            bond_slave_set_may_enable(bundle->bond, port, port->may_enable);
+            bond_slave_set_may_enable(bundle->bond, port, port->up.may_enable);
         }
 
         if (bond_run(bundle->bond, lacp_status(bundle->lacp))) {
@@ -3571,66 +3612,55 @@ ofport_update_peer(struct ofport_dpif *ofport)
     free(peer_name);
 }
 
+static bool
+may_enable_port(struct ofport_dpif *ofport)
+{
+    /* If CFM or BFD is enabled, then at least one of them must report that the
+     * port is up. */
+    if ((ofport->bfd || ofport->cfm)
+        && !(ofport->cfm
+             && !cfm_get_fault(ofport->cfm)
+             && cfm_get_opup(ofport->cfm) != 0)
+        && !(ofport->bfd
+             && bfd_forwarding(ofport->bfd))) {
+        return false;
+    }
+
+    /* If LACP is enabled, it must report that the link is enabled. */
+    if (ofport->bundle
+        && !lacp_slave_may_enable(ofport->bundle->lacp, ofport)) {
+        return false;
+    }
+
+    return true;
+}
+
 static void
 port_run(struct ofport_dpif *ofport)
 {
     long long int carrier_seq = netdev_get_carrier_resets(ofport->up.netdev);
     bool carrier_changed = carrier_seq != ofport->carrier_seq;
     bool enable = netdev_get_carrier(ofport->up.netdev);
-    bool cfm_enable = false;
-    bool bfd_enable = false;
 
     ofport->carrier_seq = carrier_seq;
-
-    if (ofport->cfm) {
-        int cfm_opup = cfm_get_opup(ofport->cfm);
-
-        cfm_enable = !cfm_get_fault(ofport->cfm);
-
-        if (cfm_opup >= 0) {
-            cfm_enable = cfm_enable && cfm_opup;
-        }
+    if (carrier_changed && ofport->bundle) {
+        lacp_slave_carrier_changed(ofport->bundle->lacp, ofport, enable);
     }
 
-    if (ofport->bfd) {
-        bfd_enable = bfd_forwarding(ofport->bfd);
+    if (enable) {
+        enable = may_enable_port(ofport);
     }
 
-    if (ofport->bfd || ofport->cfm) {
-        enable = enable && (cfm_enable || bfd_enable);
-    }
+    if (ofport->up.may_enable != enable) {
+        ofproto_port_set_enable(&ofport->up, enable);
 
-    if (ofport->bundle) {
-        enable = enable && lacp_slave_may_enable(ofport->bundle->lacp, ofport);
-        if (carrier_changed) {
-            lacp_slave_carrier_changed(ofport->bundle->lacp, ofport);
-        }
-    }
-
-    if (ofport->may_enable != enable) {
         struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofport->up.ofproto);
-
         ofproto->backer->need_revalidate = REV_PORT_TOGGLED;
 
         if (ofport->rstp_port) {
             rstp_port_set_mac_operational(ofport->rstp_port, enable);
         }
-
-        /* Propagate liveness, unless the link is administratively or
-         * operationally down. */
-        if (!(ofport->up.pp.config & OFPUTIL_PC_PORT_DOWN) &&
-            !(ofport->up.pp.state & OFPUTIL_PS_LINK_DOWN)) {
-            enum ofputil_port_state of_state = ofport->up.pp.state;
-            if (enable) {
-                of_state |= OFPUTIL_PS_LIVE;
-            } else {
-                of_state &= ~OFPUTIL_PS_LIVE;
-            }
-            ofproto_port_set_state(&ofport->up, of_state);
-        }
     }
-
-    ofport->may_enable = enable;
 }
 
 static int
@@ -3787,6 +3817,26 @@ port_get_stats(const struct ofport *ofport_, struct netdev_stats *stats)
     }
 
     return error;
+}
+
+static int
+vport_get_status(const struct ofport *ofport_, char **errp)
+{
+    struct ofport_dpif *ofport = ofport_dpif_cast(ofport_);
+    char *peer_name;
+
+    if (!netdev_vport_is_patch(ofport->up.netdev) || ofport->peer) {
+        return 0;
+    }
+
+    peer_name = netdev_vport_patch_peer(ofport->up.netdev);
+    if (!peer_name) {
+        return 0;
+    }
+    *errp = xasprintf("No usable peer '%s' exists in '%s' datapath.",
+                      peer_name, ofport->up.ofproto->type);
+    free(peer_name);
+    return EINVAL;
 }
 
 static int
@@ -4445,7 +4495,7 @@ rule_construct(struct rule *rule_)
     return 0;
 }
 
-static void
+static enum ofperr
 rule_insert(struct rule *rule_, struct rule *old_rule_, bool forward_counts)
     OVS_REQUIRES(ofproto_mutex)
 {
@@ -4475,6 +4525,8 @@ rule_insert(struct rule *rule_, struct rule *old_rule_, bool forward_counts)
         ovs_mutex_unlock(&rule->stats_mutex);
         ovs_mutex_unlock(&old_rule->stats_mutex);
     }
+
+    return 0;
 }
 
 static void
@@ -4819,6 +4871,7 @@ group_setup_dp_hash_table(struct group_dpif *group, size_t max_hash)
     if (n_hash > MAX_SELECT_GROUP_HASH_VALUES ||
         (max_hash != 0 && n_hash > max_hash)) {
         VLOG_DBG("  Too many hash values required: %"PRIu64, n_hash);
+        free(webster);
         return false;
     }
 
@@ -5078,9 +5131,7 @@ nxt_resume(struct ofproto *ofproto_,
     pkt_metadata_from_flow(&packet.md, &pin->base.flow_metadata.flow);
 
     /* Fix up in_port. */
-    ofproto_dpif_set_packet_odp_port(ofproto,
-                                     pin->base.flow_metadata.flow.in_port.ofp_port,
-                                     &packet);
+    packet.md.in_port.odp_port = pin->odp_port;
 
     struct flow headers;
     flow_extract(&packet, &headers);
@@ -5098,6 +5149,7 @@ nxt_resume(struct ofproto *ofproto_,
     /* Clean up. */
     ofpbuf_uninit(&odp_actions);
     dp_packet_uninit(&packet);
+    xlate_cache_uninit(&xcache);
 
     return error;
 }
@@ -5246,7 +5298,7 @@ ofproto_unixctl_fdb_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
     ovs_rwlock_rdlock(&ofproto->ml->rwlock);
     LIST_FOR_EACH (e, lru_node, &ofproto->ml->lrus) {
         struct ofbundle *bundle = mac_entry_get_port(ofproto->ml, e);
-        char name[OFP10_MAX_PORT_NAME_LEN];
+        char name[OFP_MAX_PORT_NAME_LEN];
 
         ofputil_port_to_string(ofbundle_get_a_port(bundle)->up.ofp_port,
                                NULL, name, sizeof name);
@@ -5350,7 +5402,7 @@ ofproto_unixctl_mcast_snooping_show(struct unixctl_conn *conn,
     ovs_rwlock_rdlock(&ofproto->ms->rwlock);
     LIST_FOR_EACH (grp, group_node, &ofproto->ms->group_lru) {
         LIST_FOR_EACH(b, bundle_node, &grp->bundle_lru) {
-            char name[OFP10_MAX_PORT_NAME_LEN];
+            char name[OFP_MAX_PORT_NAME_LEN];
 
             bundle = b->port;
             ofputil_port_to_string(ofbundle_get_a_port(bundle)->up.ofp_port,
@@ -5364,7 +5416,7 @@ ofproto_unixctl_mcast_snooping_show(struct unixctl_conn *conn,
 
     /* ports connected to multicast routers */
     LIST_FOR_EACH(mrouter, mrouter_node, &ofproto->ms->mrouter_lru) {
-        char name[OFP10_MAX_PORT_NAME_LEN];
+        char name[OFP_MAX_PORT_NAME_LEN];
 
         bundle = mrouter->port;
         ofputil_port_to_string(ofbundle_get_a_port(bundle)->up.ofp_port,
@@ -5717,8 +5769,10 @@ ofproto_unixctl_dpif_dump_flows(struct unixctl_conn *conn,
     while (dpif_flow_dump_next(flow_dump_thread, &f, 1)) {
         struct flow flow;
 
-        if (odp_flow_key_to_flow(f.key, f.key_len, &flow) == ODP_FIT_ERROR
-            || xlate_lookup_ofproto(ofproto->backer, &flow, NULL) != ofproto) {
+        if ((odp_flow_key_to_flow(f.key, f.key_len, &flow, NULL)
+             == ODP_FIT_ERROR)
+            || (xlate_lookup_ofproto(ofproto->backer, &flow, NULL, NULL)
+                != ofproto)) {
             continue;
         }
 
@@ -6052,6 +6106,7 @@ const struct ofproto_class ofproto_dpif_class = {
     type_get_memory_usage,
     flush,
     query_tables,
+    NULL,                       /* modify_tables */
     set_tables_version,
     port_alloc,
     port_construct,
@@ -6064,6 +6119,7 @@ const struct ofproto_class ofproto_dpif_class = {
     port_del,
     port_set_config,
     port_get_stats,
+    vport_get_status,
     port_dump_start,
     port_dump_next,
     port_dump_done,

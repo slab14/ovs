@@ -69,7 +69,7 @@ static bool oneline;
 static bool dry_run;
 
 /* --timeout: Time to wait for a connection to 'db'. */
-static int timeout;
+static unsigned int timeout;
 
 /* Format for table output. */
 static struct table_style table_style = TABLE_STYLE_DEFAULT;
@@ -120,9 +120,7 @@ main(int argc, char *argv[])
     VLOG(ctl_might_write_to_db(commands, n_commands) ? VLL_INFO : VLL_DBG,
          "Called as %s", args);
 
-    if (timeout) {
-        time_alarm(timeout);
-    }
+    ctl_timeout_setup(timeout);
 
     /* Initialize IDL. */
     idl = the_idl = ovsdb_idl_create(db, &sbrec_idl_class, false, true);
@@ -268,8 +266,7 @@ parse_options(int argc, char *argv[], struct shash *local_options)
             exit(EXIT_SUCCESS);
 
         case 't':
-            timeout = strtoul(optarg, NULL, 10);
-            if (timeout < 0) {
+            if (!str_to_uint(optarg, 10, &timeout) || !timeout) {
                 ctl_fatal("value %s on -t or --timeout is invalid", optarg);
             }
             break;
@@ -527,6 +524,9 @@ pre_get_info(struct ctl_context *ctx)
     ovsdb_idl_add_column(ctx->idl, &sbrec_logical_flow_col_external_ids);
 
     ovsdb_idl_add_column(ctx->idl, &sbrec_datapath_binding_col_external_ids);
+
+    ovsdb_idl_add_column(ctx->idl, &sbrec_ip_multicast_col_datapath);
+    ovsdb_idl_add_column(ctx->idl, &sbrec_ip_multicast_col_seq_no);
 }
 
 static struct cmd_show_table cmd_show_tables[] = {
@@ -780,7 +780,7 @@ sbctl_open_vconn(struct shash *options)
 
     char *remote = ovs->data ? xstrdup(ovs->data) : default_ovs();
     struct vconn *vconn;
-    int retval = vconn_open_block(remote, 1 << OFP13_VERSION, 0, &vconn);
+    int retval = vconn_open_block(remote, 1 << OFP13_VERSION, 0, -1, &vconn);
     if (retval) {
         VLOG_WARN("%s: connection failed (%s)", remote, ovs_strerror(retval));
     }
@@ -955,6 +955,52 @@ cmd_lflow_list(struct ctl_context *ctx)
 
     vconn_close(vconn);
     free(lflows);
+}
+
+static void
+sbctl_ip_mcast_flush_switch(struct ctl_context *ctx,
+                            const struct sbrec_datapath_binding *dp)
+{
+    const struct sbrec_ip_multicast *ip_mcast;
+
+    /* Lookup the corresponding IP_Multicast entry. */
+    SBREC_IP_MULTICAST_FOR_EACH (ip_mcast, ctx->idl) {
+        if (ip_mcast->datapath != dp) {
+            continue;
+        }
+
+        sbrec_ip_multicast_set_seq_no(ip_mcast, ip_mcast->seq_no + 1);
+    }
+}
+
+static void
+sbctl_ip_mcast_flush(struct ctl_context *ctx)
+{
+    const struct sbrec_datapath_binding *dp;
+
+    if (ctx->argc > 2) {
+        return;
+    }
+
+    if (ctx->argc == 2) {
+        const struct ovsdb_idl_row *row;
+        char *error = ctl_get_row(ctx, &sbrec_table_datapath_binding,
+                                  ctx->argv[1], false, &row);
+        if (error) {
+            ctl_fatal("%s", error);
+        }
+
+        dp = (const struct sbrec_datapath_binding *)row;
+        if (!dp) {
+            ctl_fatal("%s is not a valid datapath", ctx->argv[1]);
+        }
+
+        sbctl_ip_mcast_flush_switch(ctx, dp);
+    } else {
+        SBREC_DATAPATH_BINDING_FOR_EACH (dp, ctx->idl) {
+            sbctl_ip_mcast_flush_switch(ctx, dp);
+        }
+    }
 }
 
 static void
@@ -1192,6 +1238,12 @@ static const struct ctl_table_class tables[SBREC_N_TABLES] = {
 
     [SBREC_TABLE_ADDRESS_SET].row_ids[0]
     = {&sbrec_address_set_col_name, NULL, NULL},
+
+    [SBREC_TABLE_HA_CHASSIS_GROUP].row_ids[0]
+    = {&sbrec_ha_chassis_group_col_name, NULL, NULL},
+
+    [SBREC_TABLE_HA_CHASSIS].row_ids[0]
+    = {&sbrec_ha_chassis_col_chassis, NULL, NULL},
 };
 
 
@@ -1458,6 +1510,10 @@ static const struct ctl_command_syntax sbctl_commands[] = {
     {"dump-flows", 0, INT_MAX, "[DATAPATH] [LFLOW...]",
      pre_get_info, cmd_lflow_list, NULL,
      "--uuid,--ovs?,--stats", RO}, /* Friendly alias for lflow-list */
+
+    /* IP multicast commands. */
+    {"ip-multicast-flush", 0, 1, "SWITCH",
+     pre_get_info, sbctl_ip_mcast_flush, NULL, "", RW },
 
     /* Connection commands. */
     {"get-connection", 0, 0, "", pre_connection, cmd_get_connection, NULL, "", RO},

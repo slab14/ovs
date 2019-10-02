@@ -453,11 +453,14 @@ class Session(object):
             self.rpc.error(EOF)
             self.rpc.close()
             self.rpc = None
-            self.seqno += 1
         elif self.stream is not None:
             self.stream.close()
             self.stream = None
-            self.seqno += 1
+        else:
+            return
+
+        self.seqno += 1
+        self.pick_remote()
 
     def __connect(self):
         self.__disconnect()
@@ -477,6 +480,7 @@ class Session(object):
                 self.reconnect.listening(ovs.timeval.msec())
             else:
                 self.reconnect.connect_failed(ovs.timeval.msec(), error)
+                self.pick_remote()
 
         self.seqno += 1
 

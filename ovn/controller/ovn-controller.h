@@ -59,8 +59,9 @@ struct local_datapath {
     /* True if this datapath contains an l3gateway port located on this
      * hypervisor. */
     bool has_local_l3gateway;
-    const struct sbrec_datapath_binding **peer_dps;
-    size_t n_peer_dps;
+
+    const struct sbrec_port_binding **peer_ports;
+    size_t n_peer_ports;
 };
 
 struct local_datapath *get_local_datapath(const struct hmap *,
@@ -68,6 +69,8 @@ struct local_datapath *get_local_datapath(const struct hmap *,
 
 const struct ovsrec_bridge *get_bridge(const struct ovsrec_bridge_table *,
                                        const char *br_name);
+
+struct sbrec_encap *preferred_encap(const struct sbrec_chassis *);
 
 /* Must be a bit-field ordered from most-preferred (higher number) to
  * least-preferred (lower number). */
@@ -78,6 +81,5 @@ enum chassis_tunnel_type {
 };
 
 uint32_t get_tunnel_type(const char *name);
-
 
 #endif /* ovn/ovn-controller.h */

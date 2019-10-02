@@ -118,10 +118,18 @@ The \fIfilter\fR is also useful to match wildcarded fields in the datapath
 flow. As an example, \fBfilter='tcp,tp_src=100'\fR will match the
 datapath flow containing '\fBtcp(src=80/0xff00,dst=8080/0xff)\fR'.
 .IP
-If \fBtype=\fItype\fR is specified, only displays flows of a specific type.
-\fItype\fR can be \fBoffloaded\fR to display only rules offloaded to the HW
-or \fBovs\fR to display only rules from the OVS tables.
-By default all rules are displayed.
+If \fBtype=\fItype\fR is specified, only displays flows of the specified types.
+This option supported only for \fBovs\-appctl dpctl/dump\-flows\fR.
+\fItype\fR is a comma separated list, which can contain any of the following:
+.
+   \fBovs\fR - displays flows handled in the ovs dp
+   \fBtc\fR - displays flows handled in the tc dp
+   \fBoffloaded\fR - displays flows offloaded to the HW
+   \fBnon-offloaded\fR - displays flows not offloaded to the HW
+   \fBall\fR - displays all the types of flows
+.IP
+By default all the types of flows are displayed.
+\fBovs\-dpctl\fR always acts as if the \fBtype\fR was \fIovs\fR.
 .
 .IP "\*(DX\fBadd\-flow\fR [\fIdp\fR] \fIflow actions\fR"
 .TP
@@ -212,6 +220,42 @@ kernel module Open vSwitch datapaths) share a single connection tracking
 table (which is also used by other kernel subsystems, such as iptables,
 nftables and the regular host stack).  Therefore, the following commands
 do not apply specifically to one datapath.
+.
+.TP
+\*(DX\fBipf\-set\-enabled\fR [\fIdp\fR] \fBv4\fR|\fBv6\fR
+.TQ
+\*(DX\fBipf\-set\-disabled\fR [\fIdp\fR] \fBv4\fR|\fBv6\fR
+Enables or disables IP fragmentation handling for the userspace
+connection tracker.  Either \fBv4\fR or \fBv6\fR must be specified.
+Both IPv4 and IPv6 fragment reassembly are enabled by default.  Only
+supported for the userspace datapath.
+.
+.TP
+\*(DX\fBipf\-set\-min\-frag\fR [\fIdp\fR] \fBv4\fR|\fBv6\fR \fIminfrag\fR
+Sets the minimum fragment size (L3 header and data) for non-final fragments to
+\fIminfrag\fR.  Either \fBv4\fR or \fBv6\fR must be specified.  For
+enhanced DOS security, higher minimum fragment sizes can usually be used.
+The default IPv4 value is 1200 and the clamped minimum is 400.  The default
+IPv6 value is 1280, with a clamped minimum of 400, for testing
+flexibility.  The maximum fragment size is not clamped, however, setting
+this value too high might result in valid fragments being dropped.  Only
+supported for userspace datapath.
+.
+.TP
+\*(DX\fBipf\-set\-max\-nfrags\fR [\fIdp\fR] \fImaxfrags\fR
+Sets the maximum number of fragments tracked by the userspace datapath
+connection tracker to \fImaxfrags\fR.  The default value is 1000 and the
+clamped maximum is 5000.  Note that packet buffers can be held by the
+fragmentation module while fragments are incomplete, but will timeout
+after 15 seconds.  Memory pool sizing should be set accordingly when
+fragmentation is enabled.  Only supported for userspace datapath.
+.
+.TP
+.DO "[\fB\-m\fR | \fB\-\-more\fR]" "\*(DX\fBipf\-get\-status\fR [\fIdp\fR]"
+Gets the configuration settings and fragment counters associated with the
+fragmentation handling of the userspace datapath connection tracker.
+With \fB\-m\fR or \fB\-\-more\fR, also dumps the IP fragment lists.
+Only supported for userspace datapath.
 .
 .TP
 .DO "[\fB\-m\fR | \fB\-\-more\fR] [\fB\-s\fR | \fB\-\-statistics\fR]" "\*(DX\fBdump\-conntrack\fR" "[\fIdp\fR] [\fBzone=\fIzone\fR]"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2009-2014, 2018 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,11 @@ struct dpif {
     char *full_name;
     uint8_t netflow_engine_type;
     uint8_t netflow_engine_id;
+    long long int current_ms;
 };
+
+struct dpif_ipf_status;
+struct ipf_dump_ctx;
 
 void dpif_init(struct dpif *, const struct dpif_class *, const char *name,
                uint8_t netflow_engine_type, uint8_t netflow_engine_id);
@@ -77,6 +81,27 @@ struct ct_dpif_dump_state;
 struct ct_dpif_entry;
 struct ct_dpif_tuple;
 
+/* 'dpif_ipf_proto_status' and 'dpif_ipf_status' are presently in
+ * sync with 'ipf_proto_status' and 'ipf_status', but more
+ * generally represent a superset of present and future support. */
+struct dpif_ipf_proto_status {
+   uint64_t nfrag_accepted;
+   uint64_t nfrag_completed_sent;
+   uint64_t nfrag_expired_sent;
+   uint64_t nfrag_too_small;
+   uint64_t nfrag_overlap;
+   uint64_t nfrag_purged;
+   unsigned int min_frag_size;
+   bool enabled;
+};
+
+struct dpif_ipf_status {
+   struct dpif_ipf_proto_status v4;
+   struct dpif_ipf_proto_status v6;
+   unsigned int nfrag;
+   unsigned int nfrag_max;
+};
+
 /* Datapath interface class structure, to be defined by each implementation of
  * a datapath interface.
  *
@@ -93,6 +118,12 @@ struct dpif_class {
      * One of the providers should supply a "system" type, since this is
      * the type assumed if no type is specified when opening a dpif. */
     const char *type;
+
+    /* If 'true', datapath ports should be destroyed on ofproto destruction.
+     *
+     * This is used by the vswitch at exit, so that it can clean any
+     * datapaths that can not exist without it (e.g. netdev datapath).  */
+    bool cleanup_required;
 
     /* Called when the dpif provider is registered, typically at program
      * startup.  Returning an error from this function will prevent any
@@ -274,9 +305,11 @@ struct dpif_class {
      * If 'terse' is true, then only UID and statistics will
      * be returned in the dump. Otherwise, all fields will be returned.
      *
-     * If 'type' isn't null, dumps only the flows of the given type. */
-    struct dpif_flow_dump *(*flow_dump_create)(const struct dpif *dpif,
-                                               bool terse, char *type);
+     * If 'types' isn't null, dumps only the flows of the passed types. */
+    struct dpif_flow_dump *(*flow_dump_create)(
+        const struct dpif *dpif,
+        bool terse,
+        struct dpif_flow_dump_types *types);
     int (*flow_dump_destroy)(struct dpif_flow_dump *dump);
 
     struct dpif_flow_dump_thread *(*flow_dump_thread_create)(
@@ -285,12 +318,14 @@ struct dpif_class {
 
     int (*flow_dump_next)(struct dpif_flow_dump_thread *thread,
                           struct dpif_flow *flows, int max_flows);
-
     /* Executes each of the 'n_ops' operations in 'ops' on 'dpif', in the order
      * in which they are specified, placing each operation's results in the
      * "output" members documented in comments and the 'error' member of each
-     * dpif_op. */
-    void (*operate)(struct dpif *dpif, struct dpif_op **ops, size_t n_ops);
+     * dpif_op. The offload_type argument tells the provider if 'ops' should
+     * be submitted to to a netdev (only offload) or to the kernel datapath
+     * (never offload) or to both (offload if possible; software fallback). */
+    void (*operate)(struct dpif *dpif, struct dpif_op **ops, size_t n_ops,
+                    enum dpif_offload_type offload_type);
 
     /* Enables or disables receiving packets with dpif_recv() for 'dpif'.
      * Turning packet receive off and then back on is allowed to change Netlink
@@ -462,6 +497,33 @@ struct dpif_class {
     /* Deletes per zone limit of all zones specified in 'zone_limits', a
      * list of 'struct ct_dpif_zone_limit' entries. */
     int (*ct_del_limits)(struct dpif *, const struct ovs_list *zone_limits);
+
+    /* IP Fragmentation. */
+
+    /* Disables or enables conntrack fragment reassembly.  The default
+     * setting is enabled. */
+    int (*ipf_set_enabled)(struct dpif *, bool v6, bool enabled);
+
+    /* Set minimum fragment allowed. */
+    int (*ipf_set_min_frag)(struct dpif *, bool v6, uint32_t min_frag);
+
+    /* Set maximum number of fragments tracked. */
+    int (*ipf_set_max_nfrags)(struct dpif *, uint32_t max_nfrags);
+
+    /* Get fragmentation configuration status and counters. */
+    int (*ipf_get_status)(struct dpif *,
+                          struct dpif_ipf_status *dpif_ipf_status);
+
+    /* The following 3 apis find and print ipf lists by creating a string
+     * representation of the state of an ipf list, to which 'dump' is pointed
+     * to.  'ipf_dump_start()' allocates memory for 'ipf_dump_ctx'.
+     * 'ipf_dump_next()' finds the next ipf list and copies it's
+     * characteristics to a string, which is freed by the caller.
+     * 'ipf_dump_done()' frees the 'ipf_dump_ctx' that was allocated in
+     * 'ipf_dump_start'. */
+    int (*ipf_dump_start)(struct dpif *, struct ipf_dump_ctx **ipf_dump_ctx);
+    int (*ipf_dump_next)(struct dpif *, void *ipf_dump_ctx, char **dump);
+    int (*ipf_dump_done)(struct dpif *, void *ipf_dump_ctx);
 
     /* Meters */
 

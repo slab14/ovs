@@ -429,6 +429,10 @@ pop_mpls(struct dp_packet *packet, ovs_be16 ethtype)
         /* Shift the l2 header forward. */
         memmove((char*)dp_packet_data(packet) + MPLS_HLEN, dp_packet_data(packet), len);
         dp_packet_resize_l2_5(packet, -MPLS_HLEN);
+
+        /* Invalidate offload flags as they are not valid after
+         * decapsulation of MPLS header. */
+        dp_packet_reset_offload(packet);
     }
 }
 
@@ -1297,6 +1301,83 @@ packet_set_icmp(struct dp_packet *packet, uint8_t type, uint8_t code)
 
         ih->icmp_csum = recalc_csum16(ih->icmp_csum, orig_tc, new_tc);
     }
+}
+
+/* Sets the IGMP type to IGMP_HOST_MEMBERSHIP_QUERY and populates the
+ * v3 query header fields in 'packet'. 'packet' must be a valid IGMPv3
+ * query packet with its l4 offset properly populated.
+ */
+void
+packet_set_igmp3_query(struct dp_packet *packet, uint8_t max_resp,
+                       ovs_be32 group, bool srs, uint8_t qrv, uint8_t qqic)
+{
+    struct igmpv3_query_header *igh = dp_packet_l4(packet);
+    ovs_be16 orig_type_max_resp =
+        htons(igh->type << 8 | igh->max_resp);
+    ovs_be16 new_type_max_resp =
+        htons(IGMP_HOST_MEMBERSHIP_QUERY << 8 | max_resp);
+
+    if (orig_type_max_resp != new_type_max_resp) {
+        igh->type = IGMP_HOST_MEMBERSHIP_QUERY;
+        igh->max_resp = max_resp;
+        igh->csum = recalc_csum16(igh->csum, orig_type_max_resp,
+                                  new_type_max_resp);
+    }
+
+    ovs_be32 old_group = get_16aligned_be32(&igh->group);
+
+    if (old_group != group) {
+        put_16aligned_be32(&igh->group, group);
+        igh->csum = recalc_csum32(igh->csum, old_group, group);
+    }
+
+    /* See RFC 3376 4.1.6. */
+    if (qrv > 7) {
+        qrv = 0;
+    }
+
+    ovs_be16 orig_srs_qrv_qqic = htons(igh->srs_qrv << 8 | igh->qqic);
+    ovs_be16 new_srs_qrv_qqic = htons(srs << 11 | qrv << 8 | qqic);
+
+    if (orig_srs_qrv_qqic != new_srs_qrv_qqic) {
+        igh->srs_qrv = (srs << 3 | qrv);
+        igh->qqic = qqic;
+        igh->csum = recalc_csum16(igh->csum, orig_srs_qrv_qqic,
+                                  new_srs_qrv_qqic);
+    }
+}
+
+void
+packet_set_nd_ext(struct dp_packet *packet, const ovs_16aligned_be32 rso_flags,
+                  const uint8_t opt_type)
+{
+    struct ovs_nd_msg *ns;
+    struct ovs_nd_lla_opt *opt;
+    int bytes_remain = dp_packet_l4_size(packet);
+    struct ovs_16aligned_ip6_hdr * nh = dp_packet_l3(packet);
+    uint32_t pseudo_hdr_csum = 0;
+
+    if (OVS_UNLIKELY(bytes_remain < sizeof(*ns))) {
+        return;
+    }
+
+    if (nh) {
+        pseudo_hdr_csum = packet_csum_pseudoheader6(nh);
+    }
+
+    ns = dp_packet_l4(packet);
+    opt = &ns->options[0];
+
+    /* set RSO flags and option type */
+    ns->rso_flags = rso_flags;
+    opt->type = opt_type;
+
+    /* recalculate checksum */
+    ovs_be16 *csum_value = &(ns->icmph.icmp6_cksum);
+    *csum_value = 0;
+    *csum_value = csum_finish(csum_continue(pseudo_hdr_csum,
+                              &(ns->icmph), bytes_remain));
+
 }
 
 void

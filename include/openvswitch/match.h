@@ -163,11 +163,11 @@ void match_set_dl_dst_masked(struct match *, const struct eth_addr dl_dst,
 void match_set_dl_tci(struct match *, ovs_be16 tci);
 void match_set_dl_tci_masked(struct match *, ovs_be16 tci, ovs_be16 mask);
 void match_set_any_vid(struct match *);
-void match_set_dl_vlan(struct match *, ovs_be16);
+void match_set_dl_vlan(struct match *, ovs_be16, int id);
 void match_set_vlan_vid(struct match *, ovs_be16);
 void match_set_vlan_vid_masked(struct match *, ovs_be16 vid, ovs_be16 mask);
 void match_set_any_pcp(struct match *);
-void match_set_dl_vlan_pcp(struct match *, uint8_t);
+void match_set_dl_vlan_pcp(struct match *, uint8_t, int id);
 void match_set_any_mpls_lse(struct match *, int idx);
 void match_set_mpls_lse(struct match *, int idx, ovs_be32);
 void match_set_any_mpls_label(struct match *, int idx);
@@ -218,6 +218,9 @@ void match_set_ipv6_label_masked(struct match *, ovs_be32, ovs_be32);
 void match_set_nd_target(struct match *, const struct in6_addr *);
 void match_set_nd_target_masked(struct match *, const struct in6_addr *,
                                 const struct in6_addr *);
+
+void match_set_nd_reserved(struct match *, ovs_be32);
+void match_set_nd_options_type(struct match *, uint8_t);
 
 bool match_equal(const struct match *, const struct match *);
 uint32_t match_hash(const struct match *, uint32_t basis);

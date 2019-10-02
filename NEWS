@@ -1,21 +1,122 @@
-v2.10.5 - xx xxx xxxx
+v2.12.1 - xx xxx xxxx
 ---------------------
 
-v2.10.4 - 06 Sep 2019
+v2.12.0 - 03 Sep 2019
 ---------------------
-   - Fix compilation issue with Ubuntu kernel 4.15.60.
+   - DPDK:
+     * New option 'other_config:dpdk-socket-limit' to limit amount of
+       hugepage memory that can be used by DPDK.
+     * Add support for vHost Post-copy Live Migration (experimental).
+     * OVS validated with DPDK 18.11.2 which is the new minimal supported
+       version.
+     * DPDK 18.11.1 and lower is no longer supported.
+     * New option 'tx-retries-max' to set the maximum amount of vhost tx
+       retries that can be made.
+   - OpenFlow:
+     * All features required by OpenFlow 1.5 are now implemented, so
+       ovs-vswitchd now enables OpenFlow 1.5 by default (in addition to
+       OpenFlow 1.0 to 1.4).
+     * Removed support for OpenFlow 1.6 (draft), which ONF abandoned.
+     * New action "check_pkt_larger".
+     * Support for OpenFlow 1.5 "meter" action.
+   - Userspace datapath:
+     * ICMPv6 ND enhancements: support for match and set ND options type
+       and reserved fields.
+     * Add v4/v6 fragmentation support for conntrack.
+     * New ovs-appctl "dpctl/ipf-set-enabled" and "dpctl/ipf-set-disabled"
+       commands for userspace datapath conntrack fragmentation support.
+     * New "ovs-appctl dpctl/ipf-set-min-frag" command for userspace
+       datapath conntrack fragmentation support.
+     * New "ovs-appctl dpctl/ipf-set-max-nfrags" command for userspace datapath
+       conntrack fragmentation support.
+     * New "ovs-appctl dpctl/ipf-get-status" command for userspace datapath
+       conntrack fragmentation support.
+     * New action "check_pkt_len".
+     * Port configuration with "other-config:priority-tags" now has a mode
+       that retains the 802.1Q header even if VLAN and priority are both zero.
+     * 'ovs-appctl exit' now implies cleanup of non-internal ports in userspace
+       datapath regardless of '--cleanup' option. Use '--cleanup' to remove
+       internal ports too.
+     * Removed experimental tag for SMC cache.
+     * Datapath classifer code refactored to enable function pointers to select
+       the lookup implementation at runtime. This enables specialization of
+       specific subtables based on the miniflow attributes, enhancing the
+       performance of the subtable search.
+     * Add Linux AF_XDP support through a new experimental netdev type "afxdp".
+   - OVSDB:
+     * OVSDB clients can now resynchronize with clustered servers much more
+       quickly after a brief disconnection, saving bandwidth and CPU time.
+       See section 4.1.15 of ovsdb-server(7) for details of related OVSDB
+       protocol extension.
+   - OVN:
+     * IPAM/MACAM:
+       - select IPAM mac_prefix in a random manner if not provided by the user
+       - add the capability to specify a static IPv4 and/or IPv6 address and
+         get the L2 one allocated dynamically using the following syntax:
+           ovn-nbctl lsp-set-addresses <port> "dynamic <IPv4 addr> <IPv6 addr>"
+     * Added the HA chassis group support.
+     * Added 'external' logical port support.
+     * Added Policy-based routing(PBR) support to create permit/deny/reroute
+       policies on the logical router. New table(Logical_Router_Policy) added in
+       OVN-NB schema. New "ovn-nbctl" commands to add/delete/list PBR policies.
+     * Support for Transport Zones, a way to separate chassis into
+       logical groups which results in tunnels only been formed between
+       members of the same transport zone(s).
+     * Support for IGMP Snooping and IGMP Querier.
+     * Support for new logical switch port type - 'virtual'.
+   - New QoS type "linux-netem" on Linux.
+   - Added support for TLS Server Name Indication (SNI).
+   - Linux datapath:
+     * Support for the kernel versions 4.19.x and 4.20.x.
+     * Support for the kernel version 5.0.x.
+   - 'ovs-dpctl dump-flows' is no longer suitable for dumping offloaded flows.
+     'ovs-appctl dpctl/dump-flows' should be used instead.
+   - Add L2 GRE tunnel over IPv6 support.
 
-v2.10.3 - 03 Sep 2019
+v2.11.0 - 19 Feb 2019
 ---------------------
-   - Bug fixes
-
-v2.10.2 - 30 Mar 2019
----------------------
-   - Bug fixes
-
-v2.10.1 - 19 Oct 2018
----------------------
-   - Bug fixes
+   - OpenFlow:
+     * OFPMP_TABLE_FEATURES_REQUEST can now modify table features.
+   - ovs-ofctl:
+     * "mod-table" command can now change OpenFlow table names.
+   - ovn:
+     * OVN-SB schema changed: duplicated IP with same Encapsulation type
+       is not allowed any more.  Please refer to
+       Documentation/intro/install/ovn-upgrades.rst for the instructions
+       in case there are problems encountered when upgrading from an earlier
+       version.
+     * New support for IPSEC encrypted tunnels between hypervisors.
+     * ovn-ctl: allow passing user:group ids to the OVN daemons.
+     * IPAM/MACAM:
+       - add the capability to dynamically assign just L2 addresses
+       - add the capability to specify a static ip address and get the L2 one
+         allocated dynamically using the following syntax:
+           ovn-nbctl lsp-set-addresses <port> "dynamic <IP>"
+   - DPDK:
+     * Add support for DPDK 18.11
+     * Add support for port representors.
+   - Userspace datapath:
+     * Add option for simple round-robin based Rxq to PMD assignment.
+       It can be set with pmd-rxq-assign.
+     * Add support for Auto load balancing of PMDs (experimental)
+     * Added new per-port configurable option to manage EMC:
+       'other_config:emc-enable'.
+   - Add 'symmetric_l3' hash function.
+   - OVS now honors 'updelay' and 'downdelay' for bonds with LACP configured.
+   - ovs-vswitchd:
+     * New configuration option "offload-rebalance", that enables dynamic
+       rebalancing of offloaded flows.
+   - The environment variable OVS_SYSLOG_METHOD, if set, is now used
+     as the default syslog method.
+   - The environment variable OVS_CTL_TIMEOUT, if set, is now used
+     as the default timeout for control utilities.
+   - The environment variable OVS_RESOLV_CONF, if set, is now used
+     as the DNS server configuration file.
+   - RHEL packaging:
+     * OVN packages are split from OVS packages. A new spec
+       file - ovn-fedora.spec.in is added to generate OVN packages.
+   - Linux datapath:
+     * Support for the kernel versions 4.16.x, 4.17.x, and 4.18.x.
 
 v2.10.0 - 18 Aug 2018
 ---------------------
@@ -75,6 +176,9 @@ v2.10.0 - 18 Aug 2018
        both kernel datapath and userspace datapath.
      * Added port-based and flow-based ERSPAN tunnel port support, added
        OpenFlow rules matching ERSPAN fields. See ovs-fields(7).
+   - ovs-pki
+     * ovs-pki now generates x.509 version 3 certificate. The new format adds
+       subjectAltName field and sets its value the same as common name (CN).
 
 v2.9.0 - 19 Feb 2018
 --------------------

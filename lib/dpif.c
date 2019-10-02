@@ -49,6 +49,7 @@
 #include "valgrind.h"
 #include "openvswitch/ofp-errors.h"
 #include "openvswitch/vlog.h"
+#include "lib/netdev-provider.h"
 
 VLOG_DEFINE_THIS_MODULE(dpif);
 
@@ -100,12 +101,9 @@ static bool should_log_flow_message(const struct vlog_module *module,
 struct seq *tnl_conf_seq;
 
 static bool
-dpif_is_internal_port(const char *type)
+dpif_is_tap_port(const char *type)
 {
-    /* For userspace datapath, tap devices are the equivalent
-     * of internal devices in the kernel datapath, so both
-     * these types are 'internal' devices. */
-    return !strcmp(type, "internal") || !strcmp(type, "tap");
+    return !strcmp(type, "tap");
 }
 
 static void
@@ -358,7 +356,7 @@ do_open(const char *name, const char *type, bool create, struct dpif **dpifp)
             struct netdev *netdev;
             int err;
 
-            if (dpif_is_internal_port(dpif_port.type)) {
+            if (dpif_is_tap_port(dpif_port.type)) {
                 continue;
             }
 
@@ -433,7 +431,7 @@ dpif_remove_netdev_ports(struct dpif *dpif) {
         struct dpif_port dpif_port;
 
         DPIF_PORT_FOR_EACH (&dpif_port, &port_dump, dpif) {
-            if (!dpif_is_internal_port(dpif_port.type)) {
+            if (!dpif_is_tap_port(dpif_port.type)) {
                 netdev_ports_remove(dpif_port.port_no, dpif->dpif_class);
             }
         }
@@ -498,6 +496,13 @@ const char *
 dpif_type(const struct dpif *dpif)
 {
     return dpif->dpif_class->type;
+}
+
+/* Checks if datapath 'dpif' requires cleanup. */
+bool
+dpif_cleanup_required(const struct dpif *dpif)
+{
+    return dpif->dpif_class->cleanup_required;
 }
 
 /* Returns the fully spelled out name for the given datapath 'type'.
@@ -581,7 +586,7 @@ dpif_port_add(struct dpif *dpif, struct netdev *netdev, odp_port_t *port_nop)
         VLOG_DBG_RL(&dpmsg_rl, "%s: added %s as port %"PRIu32,
                     dpif_name(dpif), netdev_name, port_no);
 
-        if (!dpif_is_internal_port(netdev_get_type(netdev))) {
+        if (!dpif_is_tap_port(netdev_get_type(netdev))) {
 
             struct dpif_port dpif_port;
 
@@ -1001,7 +1006,7 @@ dpif_flow_get(struct dpif *dpif,
     op.flow_get.flow->key_len = key_len;
 
     opp = &op;
-    dpif_operate(dpif, &opp, 1);
+    dpif_operate(dpif, &opp, 1, DPIF_OFFLOAD_AUTO);
 
     return op.error;
 }
@@ -1031,7 +1036,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
     op.flow_put.stats = stats;
 
     opp = &op;
-    dpif_operate(dpif, &opp, 1);
+    dpif_operate(dpif, &opp, 1, DPIF_OFFLOAD_AUTO);
 
     return op.error;
 }
@@ -1054,7 +1059,7 @@ dpif_flow_del(struct dpif *dpif,
     op.flow_del.terse = false;
 
     opp = &op;
-    dpif_operate(dpif, &opp, 1);
+    dpif_operate(dpif, &opp, 1, DPIF_OFFLOAD_AUTO);
 
     return op.error;
 }
@@ -1066,9 +1071,10 @@ dpif_flow_del(struct dpif *dpif,
  * This function always successfully returns a dpif_flow_dump.  Error
  * reporting is deferred to dpif_flow_dump_destroy(). */
 struct dpif_flow_dump *
-dpif_flow_dump_create(const struct dpif *dpif, bool terse, char *type)
+dpif_flow_dump_create(const struct dpif *dpif, bool terse,
+                      struct dpif_flow_dump_types *types)
 {
-    return dpif->dpif_class->flow_dump_create(dpif, terse, type);
+    return dpif->dpif_class->flow_dump_create(dpif, terse, types);
 }
 
 /* Destroys 'dump', which must have been created with dpif_flow_dump_create().
@@ -1159,7 +1165,7 @@ dpif_execute_helper_cb(void *aux_, struct dp_packet_batch *packets_,
     int type = nl_attr_type(action);
     struct dp_packet *packet = packets_->packets[0];
 
-    ovs_assert(packets_->count == 1);
+    ovs_assert(dp_packet_batch_size(packets_) == 1);
 
     switch ((enum ovs_action_attr)type) {
     case OVS_ACTION_ATTR_METER:
@@ -1269,6 +1275,7 @@ dpif_execute_helper_cb(void *aux_, struct dp_packet_batch *packets_,
     case OVS_ACTION_ATTR_PROBDROP:      
     case OVS_ACTION_ATTR_SLAB:
     case OVS_ACTION_ATTR_UNSPEC:
+    case OVS_ACTION_ATTR_CHECK_PKT_LEN:
     case __OVS_ACTION_ATTR_MAX:
         OVS_NOT_REACHED();
     }
@@ -1313,7 +1320,7 @@ dpif_execute(struct dpif *dpif, struct dpif_execute *execute)
         op.execute = *execute;
 
         opp = &op;
-        dpif_operate(dpif, &opp, 1);
+        dpif_operate(dpif, &opp, 1, DPIF_OFFLOAD_AUTO);
 
         return op.error;
     } else {
@@ -1324,10 +1331,21 @@ dpif_execute(struct dpif *dpif, struct dpif_execute *execute)
 /* Executes each of the 'n_ops' operations in 'ops' on 'dpif', in the order in
  * which they are specified.  Places each operation's results in the "output"
  * members documented in comments, and 0 in the 'error' member on success or a
- * positive errno on failure. */
+ * positive errno on failure.
+ */
 void
-dpif_operate(struct dpif *dpif, struct dpif_op **ops, size_t n_ops)
+dpif_operate(struct dpif *dpif, struct dpif_op **ops, size_t n_ops,
+             enum dpif_offload_type offload_type)
 {
+    if (offload_type == DPIF_OFFLOAD_ALWAYS && !netdev_is_flow_api_enabled()) {
+        size_t i;
+        for (i = 0; i < n_ops; i++) {
+            struct dpif_op *op = ops[i];
+            op->error = EINVAL;
+        }
+        return;
+    }
+
     while (n_ops > 0) {
         size_t chunk;
 
@@ -1348,7 +1366,7 @@ dpif_operate(struct dpif *dpif, struct dpif_op **ops, size_t n_ops)
              * handle itself, without help. */
             size_t i;
 
-            dpif->dpif_class->operate(dpif, ops, chunk);
+            dpif->dpif_class->operate(dpif, ops, chunk, offload_type);
 
             for (i = 0; i < chunk; i++) {
                 struct dpif_op *op = ops[i];
