@@ -39,6 +39,16 @@ const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
 const struct in6_addr in6addr_all_routers = IN6ADDR_ALL_ROUTERS_INIT;
 
+void
+reverse_data(char *buf, unsigned int len)
+{
+  for(unsigned int i=0; i<len/2; ++i) {
+    char tmp = buf[i];
+    buf[i]=buf[len-1-i];
+    buf[len-1-i]=tmp;
+  }
+}
+
 struct in6_addr
 flow_tnl_dst(const struct flow_tnl *tnl)
 {

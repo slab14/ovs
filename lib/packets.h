@@ -54,6 +54,8 @@ flow_tnl_dst_is_set(const struct flow_tnl *tnl)
 struct in6_addr flow_tnl_dst(const struct flow_tnl *tnl);
 struct in6_addr flow_tnl_src(const struct flow_tnl *tnl);
 
+void reverse_data(char *buf, unsigned int len);
+
 /* Returns an offset to 'src' covering all the meaningful fields in 'src'. */
 static inline size_t
 flow_tnl_size(const struct flow_tnl *src)

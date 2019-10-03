@@ -1,5 +1,6 @@
 #*#
 *.a
+*.cache.mk
 *.d
 *.gcno
 *.gcda
@@ -9,6 +10,7 @@
 *.loT
 *.mod.c
 *.o
+*.o.ur-safe
 *.obj
 *.exe
 *.exp

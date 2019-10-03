@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <stdio.h>
+
 #include <config.h>
 #include "odp-execute.h"
 #include <sys/types.h>
@@ -985,9 +987,9 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         break;
     
         case OVS_ACTION_ATTR_SIGN: {
-//          DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
-            //action
-//          }
+          DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
+            printf("hello world\n");
+          }
         break;
         }
 
