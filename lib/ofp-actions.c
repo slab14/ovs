@@ -7791,7 +7791,7 @@ ofpacts_pull_openflow_actions(struct ofpbuf *openflow,
         (1u << OVSINST_OFPIT11_APPLY_ACTIONS) | (1u << OVSINST_OFPIT13_METER),
         ofpacts, 0, vl_mff_map, ofpacts_tlv_bitmap);
 }
-
+
 /* OpenFlow 1.1 action sets. */
 
 /* Append ofpact 'a' onto the tail of 'out' */

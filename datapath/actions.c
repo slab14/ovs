@@ -18,6 +18,11 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/fs.h>
+#include <asm/segment.h>
+//#include <asm/uaccess.h>
+#include <linux/buffer_head.h>
+
 #include <linux/skbuff.h>
 #include <linux/in.h>
 #include <linux/ip.h>
@@ -43,6 +48,35 @@
 #include "gso.h"
 #include "vport.h"
 #include "flow_netlink.h"
+
+
+struct file *file_open(const char *path, int flags, int rights) 
+{
+    struct file *filp = NULL;
+    int err = 0;
+
+    filp = filp_open(path, flags, rights);
+    if (IS_ERR(filp)) {
+        err = PTR_ERR(filp);
+        return NULL;
+    }
+    return filp;
+}
+
+void file_close(struct file *file) 
+{
+    filp_close(file, NULL);
+}
+
+int file_write(struct file *file, unsigned long long offset, unsigned char *data, unsigned int size) 
+{
+    int ret;
+
+    ret = vfs_write(file, data, size, &offset);
+    //ret = kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos);
+    return ret;
+}
+
 
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
@@ -1428,6 +1462,17 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                 }
 
 		case OVS_ACTION_ATTR_SIGN: {
+		  pr_warn("hello", ovs_dp_name(dp));
+                  struct file * f;
+                  f = file_open("/users/slab/file.txt", O_CREAT |  O_RDWR | O_APPEND, S_IRWXU | S_IRWXG | S_IRWXO);
+                  if(f != NULL){
+                      char * str = "I just wrote something";
+                      file_write(f,0, str, strlen(str)); 
+                      file_close(f);
+                  }else{
+                      printk(KERN_ERR "Error! Cannot open file\n");
+                  }
+		  pr_warn("world", ovs_dp_name(dp));
 		  break;
 		}
 		  

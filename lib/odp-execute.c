@@ -39,6 +39,10 @@
 #include "csum.h"
 #include "conntrack.h"
 
+#include "openvswitch/vlog.h"
+
+VLOG_DEFINE_THIS_MODULE(odp_execute);
+
 /* Masked copy of an ethernet address. 'src' is already properly masked. */
 static void
 ether_addr_copy_masked(struct eth_addr *dst, const struct eth_addr src,
@@ -787,6 +791,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
     NL_ATTR_FOR_EACH_UNSAFE (a, left, actions, actions_len) {
         int type = nl_attr_type(a);
         bool last_action = (left <= NLA_ALIGN(a->nla_len));
+        VLOG_INFO("1: hello %d", type);
 
         if (requires_datapath_assistance(a)) {
             if (dp_execute_action) {
@@ -807,7 +812,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             }
             continue;
         }
-
+        VLOG_INFO("2: world");
         switch ((enum ovs_action_attr) type) {
 
         case OVS_ACTION_ATTR_HASH: {
@@ -987,8 +992,15 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         break;
     
         case OVS_ACTION_ATTR_SIGN: {
+          VLOG_INFO("3: testing...testing");
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
-            printf("hello world\n");
+              FILE *f = fopen("/users/slab/file.txt", "a");
+              if (f == NULL) {
+                  exit(1);
+              }
+              const char *text = "Matt's sign function called";
+              fprintf(f, "LOG: %s\n", text);
+              fclose(f);  
           }
         break;
         }
