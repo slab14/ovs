@@ -38,9 +38,13 @@
 #include <string.h>
 #include <openssl/hmac.h>
 
+#define DIGEST_SIZE 20
+
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
 const struct in6_addr in6addr_all_routers = IN6ADDR_ALL_ROUTERS_INIT;
+
+void tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l4_len);
 
 unsigned char *
 calcHmac(char *key, uint8_t *data, uint32_t len)
@@ -61,9 +65,17 @@ reverse_data(char *buf, unsigned int len)
 }
 
 void
-add_data(struct dp_packet *p, char *buf, size_t size)
+add_data(struct dp_packet *p, unsigned char *buf, size_t size)
 {
   dp_packet_put(p, buf, size);
+}
+
+void
+tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l4_len)
+{
+  uint32_t pseudo_hdr_csum = packet_csum_pseudoheader(ip);
+  tcp->tcp_csum=0;
+  tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
 }
 
 char *
@@ -71,7 +83,7 @@ matt_action(struct dp_packet *p)
 {
   char *key="super_secret_key_for_hmac";
   struct ip_header *ip = dp_packet_l3(p);
-  ovs_be16 pkt_len = ip->ip_tot_len;
+  ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
   uint8_t *pkt=dp_packet_data(p);
   unsigned char *digest=calcHmac(key, pkt, pkt_len);
   if(ip->ip_proto==IPPROTO_TCP){
@@ -80,12 +92,15 @@ matt_action(struct dp_packet *p)
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
     const char *payload = dp_packet_get_tcp_payload(p);    
     if(payload!=NULL && payload_len>1){
-      reverse_data((char *)payload, payload_len);
-      uint32_t pseudo_hdr_csum;
-      pseudo_hdr_csum = packet_csum_pseudoheader(ip);
-      tcp->tcp_csum=0;
-      tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
+      //reverse_data((char *)payload, payload_len);
+      add_data(p, digest, DIGEST_SIZE);
+      ovs_be16 new_pkt_len = pkt_len+DIGEST_SIZE;
+      l4_len+=DIGEST_SIZE;
+      ip->ip_tot_len=htons(new_pkt_len);
+      //ip->ip_csum=0;
       //ip->ip_csum = csum(ip, sizeof *ip);
+      ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
+      tcp_compute_checksum_ipv4(ip, tcp, l4_len);
       return (char *)payload;
     }
   }

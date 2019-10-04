@@ -34,6 +34,8 @@
 #include "util.h"
 #include "timeval.h"
 
+
+
 struct dp_packet;
 struct conn;
 struct ds;
@@ -56,7 +58,7 @@ struct in6_addr flow_tnl_dst(const struct flow_tnl *tnl);
 struct in6_addr flow_tnl_src(const struct flow_tnl *tnl);
 
 void reverse_data(char *buf, unsigned int len);
-void add_data(struct dp_packet *p, char *buf, size_t size);
+void add_data(struct dp_packet *p, unsigned char *buf, size_t size);
 char * matt_action(struct dp_packet *p);
 unsigned char * calcHmac(char *key, uint8_t *data, uint32_t len);
 
