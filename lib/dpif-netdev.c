@@ -7298,9 +7298,8 @@ dp_execute_cb(void *aux_, struct dp_packet_batch *packets_,
         dp_netdev_run_meter(pmd->dp, packets_, nl_attr_get_u32(a),
                             pmd->ctx.now);
         break;
-    case OVS_ACTION_ATTR_SIGN:
-        VLOG_INFO("hello world\n");
-        break;
+    case OVS_ACTION_ATTR_SIGN: 
+      //VLOG_INFO("hello world");
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
     case OVS_ACTION_ATTR_PUSH_MPLS:

@@ -1919,14 +1919,14 @@ encode_SIGN(const struct ofpact_null *null OVS_UNUSED,
 static enum ofperr
 decode_OFPAT_RAW_SIGN(struct ofpbuf *out)
 {
-  ofpact_put_SIGN(out)->ofpact.raw = OFPACT_SIGN;
+  ofpact_put_SIGN(out)->ofpact.raw = OFPAT_RAW_SIGN;
   return 0;
 }
 
 static char * OVS_WARN_UNUSED_RESULT
 parse_SIGN(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
 {
-  ofpact_put_SIGN(pp->ofpacts)->ofpact.raw = OFPACT_SIGN;
+  ofpact_put_SIGN(pp->ofpacts)->ofpact.raw = OFPAT_RAW_SIGN;
   return NULL;
 }
 
@@ -2337,7 +2337,7 @@ check_SET_IP_TTL(const struct ofpact_ip_ttl *a OVS_UNUSED,
 {
     return check_set_ip(cp);
 }
-
+
 /* Set TCP/UDP/SCTP port actions. */
 
 static enum ofperr

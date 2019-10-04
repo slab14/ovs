@@ -4979,6 +4979,12 @@ compose_mpls_pop_action(struct xlate_ctx *ctx, ovs_be16 eth_type)
     }
 }
 
+static void
+compose_sign_action(struct xlate_ctx *ctx)
+{
+  nl_msg_put_flag(ctx->odp_actions, OVS_ACTION_ATTR_SIGN);
+}
+
 static bool
 compose_dec_ttl(struct xlate_ctx *ctx, struct ofpact_cnt_ids *ids)
 {
@@ -6979,6 +6985,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         }
 
         case OFPACT_SIGN:
+            compose_sign_action(ctx);
             break;
   
         case OFPACT_CT:
