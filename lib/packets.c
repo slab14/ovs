@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <string.h>
+
 #include <config.h>
 #include "packets.h"
 #include <sys/types.h>
@@ -47,6 +49,25 @@ reverse_data(char *buf, unsigned int len)
     buf[i]=buf[len-1-i];
     buf[len-1-i]=tmp;
   }
+}
+
+void
+add_data(struct dp_packet *p, char *buf, size_t size)
+{
+  dp_packet_put(p, buf, size);
+}
+
+char *
+matt_action(struct dp_packet *p)
+{
+  //char *tmp;
+  const char *payload = dp_packet_get_tcp_payload(p);
+  if(payload!=NULL){
+    //memcpy(tmp, payload, 6);
+    reverse_data((char *)payload, 6);
+    return (char *)payload;
+  }
+  return " ";
 }
 
 struct in6_addr

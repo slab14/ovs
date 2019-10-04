@@ -791,7 +791,6 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
     NL_ATTR_FOR_EACH_UNSAFE (a, left, actions, actions_len) {
         int type = nl_attr_type(a);
         bool last_action = (left <= NLA_ALIGN(a->nla_len));
-        VLOG_INFO("1: hello %d", type);
 
         if (requires_datapath_assistance(a)) {
             if (dp_execute_action) {
@@ -812,7 +811,6 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             }
             continue;
         }
-        VLOG_INFO("2: world");
         switch ((enum ovs_action_attr) type) {
 
         case OVS_ACTION_ATTR_HASH: {
@@ -992,7 +990,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         break;
     
         case OVS_ACTION_ATTR_SIGN: {
-          VLOG_INFO("3: testing...testing");
+          VLOG_INFO("MATT: testing...testing");
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
               FILE *f = fopen("/users/slab/file.txt", "a");
               if (f == NULL) {
@@ -1000,7 +998,12 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
               }
               const char *text = "Matt's sign function called";
               fprintf(f, "LOG: %s\n", text);
-              fclose(f);  
+              fclose(f);
+              //char *data = "secret";
+              //add_data(packet, data, 6);
+              char *temp;
+              temp = matt_action(packet);
+              VLOG_INFO("MATT: appended data to packet, %s", temp);
           }
         break;
         }
