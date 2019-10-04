@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <string.h>
-
 #include <config.h>
 #include "packets.h"
 #include <sys/types.h>
@@ -37,9 +35,20 @@
 #include "dp-packet.h"
 #include "unaligned.h"
 
+#include <string.h>
+#include <openssl/hmac.h>
+
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
 const struct in6_addr in6addr_all_routers = IN6ADDR_ALL_ROUTERS_INIT;
+
+unsigned char *
+calcHmac(char *key, uint8_t *data, uint32_t len)
+{
+  unsigned char *digest;
+  digest=HMAC(EVP_md5(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
+  return digest;
+}
 
 void
 reverse_data(char *buf, unsigned int len)
@@ -60,14 +69,27 @@ add_data(struct dp_packet *p, char *buf, size_t size)
 char *
 matt_action(struct dp_packet *p)
 {
-  //char *tmp;
-  const char *payload = dp_packet_get_tcp_payload(p);
-  if(payload!=NULL){
-    //memcpy(tmp, payload, 6);
-    reverse_data((char *)payload, 6);
-    return (char *)payload;
+  char *key="super_secret_key_for_hmac";
+  struct ip_header *ip = dp_packet_l3(p);
+  ovs_be16 pkt_len = ip->ip_tot_len;
+  uint8_t *pkt=dp_packet_data(p);
+  unsigned char *digest=calcHmac(key, pkt, pkt_len);
+  if(ip->ip_proto==IPPROTO_TCP){
+    struct tcp_header *tcp = dp_packet_l4(p);
+    size_t l4_len=dp_packet_l4_size(p);
+    size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
+    const char *payload = dp_packet_get_tcp_payload(p);    
+    if(payload!=NULL && payload_len>1){
+      reverse_data((char *)payload, payload_len);
+      uint32_t pseudo_hdr_csum;
+      pseudo_hdr_csum = packet_csum_pseudoheader(ip);
+      tcp->tcp_csum=0;
+      tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
+      //ip->ip_csum = csum(ip, sizeof *ip);
+      return (char *)payload;
+    }
   }
-  return " ";
+  return (char *)digest;
 }
 
 struct in6_addr
