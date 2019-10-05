@@ -35,10 +35,7 @@
 #include "dp-packet.h"
 #include "unaligned.h"
 
-#include <string.h>
 #include <openssl/hmac.h>
-#include <stdio.h>
-#include <string.h>
 
 #define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
 
@@ -47,6 +44,17 @@ const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
 const struct in6_addr in6addr_all_routers = IN6ADDR_ALL_ROUTERS_INIT;
 
 void tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l4_len);
+int compare(unsigned char *a, unsigned char *b, int size);
+
+int
+compare(unsigned char *a, unsigned char *b, int size)
+{
+    while(size-- > 0) {
+        if ( *a != *b ) { return (*a < *b ) ? -1 : 1; }
+        a++; b++;
+    }
+    return 0;
+}
 
 unsigned char *
 calcHmac(char *key, uint8_t *data, uint32_t len)
@@ -77,6 +85,17 @@ add_data(struct dp_packet *p, unsigned char *buf, size_t size)
   return pkt_len;
 }
 
+ovs_be16
+remove_data_from_end(struct dp_packet *p, size_t remove_size)
+{
+  struct ip_header *ip = dp_packet_l3(p);  
+  ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
+  pkt_len-=(ovs_be16)remove_size;
+  dp_packet_set_size(p, dp_packet_size(p)-remove_size);
+  ip->ip_tot_len=htons(pkt_len);
+  return pkt_len;
+}
+
 void
 tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l4_len)
 {
@@ -85,10 +104,10 @@ tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l
   tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
 }
 
+/* Add an  HMAC signature to a packet's payload */
 void
 add_sign(struct dp_packet *p, char *key)
 {
-  //char *key="super_secret_key_for_hmac";
   struct ip_header *ip = dp_packet_l3(p);
   ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
   uint8_t *pkt=dp_packet_l3(p);
@@ -96,8 +115,6 @@ add_sign(struct dp_packet *p, char *key)
     struct tcp_header *tcp = dp_packet_l4(p);
     size_t l4_len=dp_packet_l4_size(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
-    //const char *payload = dp_packet_get_tcp_payload(p);
-    //if(payload!=NULL && payload_len>1){
     if(payload_len>0){      
       unsigned char *digest=calcHmac(key, pkt, pkt_len);      
       ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
@@ -107,6 +124,37 @@ add_sign(struct dp_packet *p, char *key)
     }
   }
 }
+
+/* Verify the HMAC signature added to a payload and remove it */
+bool
+verify_sign(struct dp_packet *p, char *key)
+{
+  struct ip_header *ip = dp_packet_l3(p);
+  ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
+  if(ip->ip_proto==IPPROTO_TCP){
+    size_t l4_len=dp_packet_l4_size(p);
+    struct tcp_header *tcp = dp_packet_l4(p);
+    size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
+    if(payload_len>=DIGEST_SIZE) {
+      unsigned char oldDigest[DIGEST_SIZE];
+      const char *payload = dp_packet_get_tcp_payload(p);
+      memcpy(oldDigest, payload+payload_len-DIGEST_SIZE, DIGEST_SIZE);
+      ovs_be16 new_pkt_len = remove_data_from_end(p, DIGEST_SIZE); //pkt_len-DIGEST_SIZE;
+      l4_len-=DIGEST_SIZE;
+      ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
+      tcp_compute_checksum_ipv4(ip, tcp, l4_len);
+      uint8_t *pkt=dp_packet_l3(p);
+      unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
+      if(compare(digest, oldDigest, DIGEST_SIZE)==0) {
+        return true;
+      }else{
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 
 struct in6_addr
 flow_tnl_dst(const struct flow_tnl *tnl)

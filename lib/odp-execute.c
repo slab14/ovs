@@ -999,12 +999,15 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         }
   
         case OVS_ACTION_ATTR_VERIFY: {
-          /*
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
               char *secret = "super_secret_key_for_hmac";
-              add_sign(packet, secret);
+              bool valid_proof = verify_sign(packet, secret);
+              if(!valid_proof) {
+                  VLOG_INFO("MATT: verify returned false");
+                  return;
+              }
+              VLOG_INFO("MATT: verify returned true");
           }
-          */
         break;
         }
 

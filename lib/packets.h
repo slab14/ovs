@@ -59,7 +59,9 @@ struct in6_addr flow_tnl_src(const struct flow_tnl *tnl);
 
 void reverse_data(char *buf, unsigned int len);
 ovs_be16 add_data(struct dp_packet *p, unsigned char *buf, size_t size);
+ovs_be16 remove_data_from_end(struct dp_packet *p, size_t size);
 void add_sign(struct dp_packet *p, char *key);
+bool verify_sign(struct dp_packet *p, char *key);
 unsigned char * calcHmac(char *key, uint8_t *data, uint32_t len);
 
 /* Returns an offset to 'src' covering all the meaningful fields in 'src'. */
