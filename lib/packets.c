@@ -37,8 +37,10 @@
 
 #include <string.h>
 #include <openssl/hmac.h>
+#include <stdio.h>
+#include <string.h>
 
-#define DIGEST_SIZE 20
+#define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
 
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
@@ -64,10 +66,15 @@ reverse_data(char *buf, unsigned int len)
   }
 }
 
-void
+ovs_be16
 add_data(struct dp_packet *p, unsigned char *buf, size_t size)
 {
   dp_packet_put(p, buf, size);
+  struct ip_header *ip = dp_packet_l3(p);
+  ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
+  pkt_len+=size;
+  ip->ip_tot_len=htons(pkt_len);
+  return pkt_len;
 }
 
 void
@@ -78,33 +85,30 @@ tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l
   tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
 }
 
-char *
+ovs_be16
 matt_action(struct dp_packet *p)
 {
   char *key="super_secret_key_for_hmac";
   struct ip_header *ip = dp_packet_l3(p);
   ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
-  uint8_t *pkt=dp_packet_data(p);
-  unsigned char *digest=calcHmac(key, pkt, pkt_len);
+  //uint8_t *pkt=dp_packet_data(p);
   if(ip->ip_proto==IPPROTO_TCP){
     struct tcp_header *tcp = dp_packet_l4(p);
     size_t l4_len=dp_packet_l4_size(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
-    const char *payload = dp_packet_get_tcp_payload(p);    
+    //unsigned char *digest=calcHmac(key, pkt, pkt_len);
+    const char *payload = dp_packet_get_tcp_payload(p);
+    unsigned char *digest=calcHmac(key, (uint8_t *)payload, payload_len);
     if(payload!=NULL && payload_len>1){
       //reverse_data((char *)payload, payload_len);
-      add_data(p, digest, DIGEST_SIZE);
-      ovs_be16 new_pkt_len = pkt_len+DIGEST_SIZE;
+      ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
       l4_len+=DIGEST_SIZE;
-      ip->ip_tot_len=htons(new_pkt_len);
-      //ip->ip_csum=0;
-      //ip->ip_csum = csum(ip, sizeof *ip);
       ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
       tcp_compute_checksum_ipv4(ip, tcp, l4_len);
-      return (char *)payload;
+      return pkt_len;
     }
   }
-  return (char *)digest;
+  return 0;
 }
 
 struct in6_addr

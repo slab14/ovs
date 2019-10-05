@@ -1000,10 +1000,10 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
               fprintf(f, "LOG: %s\n", text);
               fclose(f);
               //char *data = "secret";
-              //add_data(packet, data, 6);
-              char *temp;
+              //char *temp;
+              ovs_be16 temp;
               temp = matt_action(packet);
-              VLOG_INFO("MATT: appended data to packet, %s", temp);
+              VLOG_INFO("MATT: appended data to packet, %u", (unsigned int) temp);
           }
         break;
         }
