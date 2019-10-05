@@ -41,7 +41,7 @@
 
 #include "openvswitch/vlog.h"
 
-//VLOG_DEFINE_THIS_MODULE(odp_execute);
+VLOG_DEFINE_THIS_MODULE(odp_execute);
 
 /* Masked copy of an ethernet address. 'src' is already properly masked. */
 static void
