@@ -4985,6 +4985,12 @@ compose_sign_action(struct xlate_ctx *ctx)
   nl_msg_put_flag(ctx->odp_actions, OVS_ACTION_ATTR_SIGN);
 }
 
+static void
+compose_verify_action(struct xlate_ctx *ctx)
+{
+  nl_msg_put_flag(ctx->odp_actions, OVS_ACTION_ATTR_VERIFY);
+}
+
 static bool
 compose_dec_ttl(struct xlate_ctx *ctx, struct ofpact_cnt_ids *ids)
 {
@@ -5612,6 +5618,7 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_WRITE_METADATA:
         case OFPACT_CHECK_PKT_LARGER:
         case OFPACT_SIGN:
+        case OFPACT_VERIFY:	  
             break;
 
         case OFPACT_CT:
@@ -5922,6 +5929,7 @@ freeze_unroll_actions(const struct ofpact *a, const struct ofpact *end,
         case OFPACT_NAT:
         case OFPACT_CHECK_PKT_LARGER:
         case OFPACT_SIGN:
+        case OFPACT_VERIFY:	  
             /* These may not generate PACKET INs. */
             break;
 
@@ -6550,6 +6558,7 @@ recirc_for_mpls(const struct ofpact *a, struct xlate_ctx *ctx)
     case OFPACT_GOTO_TABLE:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
+    case OFPACT_VERIFY:      
     default:
         break;
     }
@@ -6987,6 +6996,10 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_SIGN:
             compose_sign_action(ctx);
             break;
+
+        case OFPACT_VERIFY:
+            compose_verify_action(ctx);
+            break;	    
   
         case OFPACT_CT:
             compose_conntrack_action(ctx, ofpact_get_CT(a), last);

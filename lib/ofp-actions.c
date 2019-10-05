@@ -364,6 +364,9 @@ enum ofp_raw_action_type {
     /* OF1.0+(30): void. */
     OFPAT_RAW_SIGN,
 
+    /* OF1.0+(31): void. */
+    OFPAT_RAW_VERIFY,    
+
 /* ## ------------------ ## */
 /* ## Debugging actions. ## */
 /* ## ------------------ ## */
@@ -504,6 +507,7 @@ ofpact_next_flattened(const struct ofpact *ofpact)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
+    case OFPACT_VERIFY:      
         return ofpact_next(ofpact);
 
     case OFPACT_CLONE:
@@ -1908,6 +1912,7 @@ check_PUSH_VLAN(const struct ofpact_push_vlan *a OVS_UNUSED,
     return 0;
 }
 
+/* Sign */
 static void
 encode_SIGN(const struct ofpact_null *null OVS_UNUSED,
             enum ofp_version ofp_version OVS_UNUSED,
@@ -1939,6 +1944,43 @@ format_SIGN(const struct ofpact_null *a OVS_UNUSED,
 
 static enum ofperr
 check_SIGN(const struct ofpact_null *a OVS_UNUSED,
+           const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+
+/* Verify */
+static void
+encode_VERIFY(const struct ofpact_null *null OVS_UNUSED,
+            enum ofp_version ofp_version OVS_UNUSED,
+            struct ofpbuf *out)
+{
+  put_OFPAT_VERIFY(out);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_VERIFY(struct ofpbuf *out)
+{
+  ofpact_put_VERIFY(out)->ofpact.raw = OFPAT_RAW_VERIFY;
+  return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_VERIFY(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
+{
+  ofpact_put_VERIFY(pp->ofpacts)->ofpact.raw = OFPAT_RAW_VERIFY;
+  return NULL;
+}
+
+static void
+format_VERIFY(const struct ofpact_null *a OVS_UNUSED,
+            const struct ofpact_format_params *fp)
+{
+  ds_put_format(fp->s, "%sverify%s", colors.value, colors.end);
+}
+
+static enum ofperr
+check_VERIFY(const struct ofpact_null *a OVS_UNUSED,
            const struct ofpact_check_params *cp OVS_UNUSED)
 {
   return 0;
@@ -7813,7 +7855,8 @@ ofpact_copy(struct ofpbuf *out, const struct ofpact *a)
     SLOT(OFPACT_DEC_TTL)                        \
     SLOT(OFPACT_DEC_MPLS_TTL)                   \
     SLOT(OFPACT_DEC_NSH_TTL)                    \
-    SLOT(OFPACT_SIGN)
+    SLOT(OFPACT_SIGN)                           \
+    SLOT(OFPACT_VERIFY)  
 
 /* Priority for "final actions" in an action set.  An action set only gets
  * executed at all if at least one of these actions is present.  If more than
@@ -8114,6 +8157,7 @@ ovs_instruction_type_from_ofpact_type(enum ofpact_type type,
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
+    case OFPACT_VERIFY:      
     default:
         return OVSINST_OFPIT11_APPLY_ACTIONS;
     }
@@ -9026,6 +9070,7 @@ ofpact_outputs_to_port(const struct ofpact *ofpact, ofp_port_t port)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
+    case OFPACT_VERIFY:      
     default:
         return false;
     }

@@ -2976,6 +2976,7 @@ static int __ovs_nla_copy_actions(struct net *net, const struct nlattr *attr,
 			[OVS_ACTION_ATTR_CLONE] = (u32)-1,
 			[OVS_ACTION_ATTR_CHECK_PKT_LEN] = (u32)-1,
 			[OVS_ACTION_ATTR_SIGN] = 0,
+			[OVS_ACTION_ATTR_VERIFY] = 0,			
 		};
 		const struct ovs_action_push_vlan *vlan;
 		int type = nla_type(a);
@@ -3193,6 +3194,10 @@ static int __ovs_nla_copy_actions(struct net *net, const struct nlattr *attr,
                 case OVS_ACTION_ATTR_SIGN: {
                     break;
 		}
+
+                case OVS_ACTION_ATTR_VERIFY: {
+                    break;
+		}		  
 
 		default:
 			OVS_NLERR(log, "Unknown Action type %d", type);

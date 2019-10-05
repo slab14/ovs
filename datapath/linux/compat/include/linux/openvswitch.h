@@ -957,7 +957,8 @@ struct check_pkt_len_arg {
  * @OVS_ACTION_ATTR_CHECK_PKT_LEN: Check the packet length and execute a set
  * of actions if greater than the specified packet length, else execute
  * another set of actions.
- * @OVS_ACTION_ATTR_SIGN: new action by me.
+ * @OVS_ACTION_ATTR_SIGN: new action to add a digital signature to packets.
+ * @OVS_ACTION_ATTR_VERIFY: new action to add a digital signature to packets.
  */
 
 enum ovs_action_attr {
@@ -987,6 +988,7 @@ enum ovs_action_attr {
 	OVS_ACTION_ATTR_CLONE,        /* Nested OVS_CLONE_ATTR_*.  */
 	OVS_ACTION_ATTR_CHECK_PKT_LEN, /* Nested OVS_CHECK_PKT_LEN_ATTR_*. */
 	OVS_ACTION_ATTR_SIGN = 23,         /* No argument. */
+	OVS_ACTION_ATTR_VERIFY = 24,         /* No argument. */	
 
 #ifndef __KERNEL__
 	OVS_ACTION_ATTR_TUNNEL_PUSH,   /* struct ovs_action_push_tnl*/

@@ -1429,20 +1429,23 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                         break;
                 }
 
-		case OVS_ACTION_ATTR_SIGN: {
-		  break;
-		}
-		  
-		}
+                case OVS_ACTION_ATTR_SIGN: {
+                    break;
+                }
+                case OVS_ACTION_ATTR_VERIFY: {
+                    break;
+                } 
+  
+                }
 
-		if (unlikely(err)) {
-			kfree_skb(skb);
-			return err;
-		}
-	}
+                if (unlikely(err)) {
+                        kfree_skb(skb);
+                        return err;
+                }
+        }
 
-	consume_skb(skb);
-	return 0;
+        consume_skb(skb);
+        return 0;
 }
 
 /* Execute the actions on the clone of the packet. The effect of the

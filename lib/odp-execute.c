@@ -756,6 +756,7 @@ requires_datapath_assistance(const struct nlattr *a)
     case OVS_ACTION_ATTR_CT_CLEAR:
     case OVS_ACTION_ATTR_CHECK_PKT_LEN:
     case OVS_ACTION_ATTR_SIGN:
+    case OVS_ACTION_ATTR_VERIFY:      
         return false;
 
     case OVS_ACTION_ATTR_UNSPEC:
@@ -994,6 +995,16 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
               char *secret = "super_secret_key_for_hmac";
               add_sign(packet, secret);
           }
+        break;
+        }
+  
+        case OVS_ACTION_ATTR_VERIFY: {
+          /*
+          DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
+              char *secret = "super_secret_key_for_hmac";
+              add_sign(packet, secret);
+          }
+          */
         break;
         }
 

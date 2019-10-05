@@ -141,6 +141,7 @@ odp_action_len(uint16_t type)
     case OVS_ACTION_ATTR_POP_NSH: return 0;
     case OVS_ACTION_ATTR_CHECK_PKT_LEN: return ATTR_LEN_VARIABLE;
     case OVS_ACTION_ATTR_SIGN: return 0;
+    case OVS_ACTION_ATTR_VERIFY: return 0;      
 
     case OVS_ACTION_ATTR_UNSPEC:
     case __OVS_ACTION_ATTR_MAX:
@@ -1234,6 +1235,9 @@ format_odp_action(struct ds *ds, const struct nlattr *a,
     case OVS_ACTION_ATTR_SIGN:
         ds_put_cstr(ds, "sign");
         break;
+    case OVS_ACTION_ATTR_VERIFY:
+        ds_put_cstr(ds, "verify");
+        break;	
     case OVS_ACTION_ATTR_UNSPEC:
     case __OVS_ACTION_ATTR_MAX:
     default:
