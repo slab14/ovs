@@ -41,7 +41,7 @@
 
 #include "openvswitch/vlog.h"
 
-VLOG_DEFINE_THIS_MODULE(odp_execute);
+//VLOG_DEFINE_THIS_MODULE(odp_execute);
 
 /* Masked copy of an ethernet address. 'src' is already properly masked. */
 static void
@@ -1003,10 +1003,8 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
               char *secret = "super_secret_key_for_hmac";
               bool valid_proof = verify_sign(packet, secret);
               if(!valid_proof) {
-                  VLOG_INFO("MATT: verify returned false");
                   return;
               }
-              VLOG_INFO("MATT: verify returned true");
           }
         break;
         }
