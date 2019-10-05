@@ -85,10 +85,10 @@ tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l
   tcp->tcp_csum = csum_finish(csum_continue(pseudo_hdr_csum, tcp, l4_len));
 }
 
-char *
-matt_action(struct dp_packet *p)
+void
+add_sign(struct dp_packet *p, char *key)
 {
-  char *key="super_secret_key_for_hmac";
+  //char *key="super_secret_key_for_hmac";
   struct ip_header *ip = dp_packet_l3(p);
   ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
   uint8_t *pkt=dp_packet_l3(p);
@@ -96,19 +96,16 @@ matt_action(struct dp_packet *p)
     struct tcp_header *tcp = dp_packet_l4(p);
     size_t l4_len=dp_packet_l4_size(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
-    const char *payload = dp_packet_get_tcp_payload(p);
-    //unsigned char *digest=calcHmac(key, (uint8_t *)payload, payload_len);
-    unsigned char *digest=calcHmac(key, pkt, pkt_len);
-    if(payload!=NULL && payload_len>1){
-      //reverse_data((char *)payload, payload_len);
+    //const char *payload = dp_packet_get_tcp_payload(p);
+    //if(payload!=NULL && payload_len>1){
+    if(payload_len>0){      
+      unsigned char *digest=calcHmac(key, pkt, pkt_len);      
       ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
       l4_len+=DIGEST_SIZE;
       ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
       tcp_compute_checksum_ipv4(ip, tcp, l4_len);
-      return (char *)pkt;
     }
   }
-  return (char *)pkt;
 }
 
 struct in6_addr

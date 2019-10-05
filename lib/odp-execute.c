@@ -990,20 +990,9 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         break;
     
         case OVS_ACTION_ATTR_SIGN: {
-          VLOG_INFO("MATT: testing...testing");
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
-              FILE *f = fopen("/users/slab/file.txt", "a");
-              if (f == NULL) {
-                  exit(1);
-              }
-              const char *text = "Matt's sign function called";
-              fprintf(f, "LOG: %s\n", text);
-              fclose(f);
-              //char *data = "secret";
-              char *temp;
-              temp = matt_action(packet);
-              unsigned int newTemp=*temp;
-              VLOG_INFO("MATT: appended data to packet, %02x", newTemp);
+              char *secret = "super_secret_key_for_hmac";
+              add_sign(packet, secret);
           }
         break;
         }
