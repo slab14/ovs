@@ -36,8 +36,13 @@
 #include "unaligned.h"
 
 #include <openssl/hmac.h>
+#include <uhcall.h>
 
-#define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
+/* moved to .h file */
+//#define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
+//#define DIGEST_SIZE 20  /* Digest size in bytes, SHA1 */
+
+__attribute__((aligned(4096))) __attribute__((section(".data"))) uhsign_param_t uhcp;
 
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
@@ -60,8 +65,22 @@ unsigned char *
 calcHmac(char *key, uint8_t *data, uint32_t len)
 {
   unsigned char *digest;
-  digest=HMAC(EVP_md5(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
+  //  digest=HMAC(EVP_md5(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
+  digest=HMAC(EVP_sha1(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);  
   return digest;
+}
+
+unsigned char *
+uappCalcHmac(uint8_t *data, uint32_t len)
+{
+  memcpy(&uhcp.pkt, data, len); 
+  uhcp.pkt_size=len;
+  uhsign_param_t *uhcp_ptr = &uhcp;
+  
+  if(!uhcall(UAPP_UHSIGN_FUNCTION_SIGN, uhcp_ptr, sizeof(uhsign_param_t))){
+    return uhcp_ptr->digest;
+  }
+  return NULL;
 }
 
 void

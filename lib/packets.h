@@ -34,7 +34,8 @@
 #include "util.h"
 #include "timeval.h"
 
-
+#define UAPP_UHSIGN_FUNCTION_SIGN    0x69
+#define DIGEST_SIZE 20
 
 struct dp_packet;
 struct conn;
@@ -57,6 +58,13 @@ flow_tnl_dst_is_set(const struct flow_tnl *tnl)
 struct in6_addr flow_tnl_dst(const struct flow_tnl *tnl);
 struct in6_addr flow_tnl_src(const struct flow_tnl *tnl);
 
+typedef struct {
+  uint8_t pkt[1600];
+  uint32_t pkt_size;
+  uint8_t digest[DIGEST_SIZE];
+}uhsign_param_t;
+
+unsigned char * uappCalcHmac(uint8_t *data, uint32_t len);
 void reverse_data(char *buf, unsigned int len);
 ovs_be16 add_data(struct dp_packet *p, unsigned char *buf, size_t size);
 ovs_be16 remove_data_from_end(struct dp_packet *p, size_t size);
