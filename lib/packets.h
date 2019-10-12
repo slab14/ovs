@@ -34,7 +34,8 @@
 #include "util.h"
 #include "timeval.h"
 
-#define UAPP_UHSIGN_FUNCTION_SIGN    0x69
+#include "uhcall.h"
+#define UAPP_UHSIGN_FUNCTION_SIGN 0x69
 #define DIGEST_SIZE 20
 
 struct dp_packet;

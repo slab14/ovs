@@ -36,7 +36,7 @@
 #include "unaligned.h"
 
 #include <openssl/hmac.h>
-#include <uhcall.h>
+#include "uhcall.h"
 
 /* moved to .h file */
 //#define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
@@ -76,10 +76,11 @@ uappCalcHmac(uint8_t *data, uint32_t len)
   memcpy(&uhcp.pkt, data, len); 
   uhcp.pkt_size=len;
   uhsign_param_t *uhcp_ptr = &uhcp;
-  
-  if(!uhcall(UAPP_UHSIGN_FUNCTION_SIGN, uhcp_ptr, sizeof(uhsign_param_t))){
+
+  if(uhcall(UAPP_UHSIGN_FUNCTION_SIGN, uhcp_ptr, sizeof(uhsign_param_t))){
     return uhcp_ptr->digest;
   }
+
   return NULL;
 }
 
@@ -135,11 +136,14 @@ add_sign(struct dp_packet *p, char *key)
     size_t l4_len=dp_packet_l4_size(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
     if(payload_len>0){      
-      unsigned char *digest=calcHmac(key, pkt, pkt_len);      
-      ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
-      l4_len+=DIGEST_SIZE;
-      ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
-      tcp_compute_checksum_ipv4(ip, tcp, l4_len);
+      //unsigned char *digest=calcHmac(key, pkt, pkt_len);
+      unsigned char *digest=uappCalcHmac(pkt, pkt_len);
+      if(digest!=NULL){
+        ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
+        l4_len+=DIGEST_SIZE;
+        ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
+        tcp_compute_checksum_ipv4(ip, tcp, l4_len);
+      }
     }
   }
 }
@@ -164,6 +168,7 @@ verify_sign(struct dp_packet *p, char *key)
       tcp_compute_checksum_ipv4(ip, tcp, l4_len);
       uint8_t *pkt=dp_packet_l3(p);
       unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
+      //unsigned char *digest=uappCalcHmac(pkt, new_pkt_len);      
       if(compare(digest, oldDigest, DIGEST_SIZE)==0) {
         return true;
       }else{
