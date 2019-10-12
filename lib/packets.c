@@ -126,7 +126,7 @@ tcp_compute_checksum_ipv4(struct ip_header *ip, struct tcp_header *tcp, size_t l
 
 /* Add an  HMAC signature to a packet's payload */
 void
-add_sign(struct dp_packet *p, char *key)
+add_sign(struct dp_packet *p)
 {
   struct ip_header *ip = dp_packet_l3(p);
   ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
@@ -150,7 +150,7 @@ add_sign(struct dp_packet *p, char *key)
 
 /* Verify the HMAC signature added to a payload and remove it */
 bool
-verify_sign(struct dp_packet *p, char *key)
+verify_sign(struct dp_packet *p)
 {
   struct ip_header *ip = dp_packet_l3(p);
   ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
@@ -167,8 +167,8 @@ verify_sign(struct dp_packet *p, char *key)
       ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
       tcp_compute_checksum_ipv4(ip, tcp, l4_len);
       uint8_t *pkt=dp_packet_l3(p);
-      unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
-      //unsigned char *digest=uappCalcHmac(pkt, new_pkt_len);      
+      //unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
+      unsigned char *digest=uappCalcHmac(pkt, new_pkt_len);      
       if(compare(digest, oldDigest, DIGEST_SIZE)==0) {
         return true;
       }else{
