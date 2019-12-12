@@ -15,7 +15,6 @@ s/*
  */
 
 #include <config.h>
-#include <errno.h>
 #include <getopt.h>
 #include <sys/wait.h>
 
@@ -1026,7 +1025,7 @@ wait_pid(pid_t *pids, int *n)
 
     pid = waitpid(-1, &status, 0);
     if (pid < 0) {
-        ovs_fatal(errno, "waitpid failed");
+      ovs_fatal(0, "waitpid failed");
     } else if (WIFEXITED(status)) {
         if (WEXITSTATUS(status)) {
             exit(WEXITSTATUS(status));
