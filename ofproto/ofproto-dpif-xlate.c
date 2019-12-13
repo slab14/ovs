@@ -5620,7 +5620,7 @@ reversible_actions(const struct ofpact *ofpacts, size_t ofpacts_len)
         case OFPACT_UNROLL_XLATE:
         case OFPACT_WRITE_ACTIONS:
         case OFPACT_WRITE_METADATA:
-        case OFPACT_SLAB:	  
+        case OFPACT_SLAB:
         case OFPACT_CHECK_PKT_LARGER:
             break;
 
@@ -7026,7 +7026,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_PROBDROP:
             compose_probdrop_action(ctx, ofpact_get_PROBDROP(a));
             break;
-	    
+
         case OFPACT_CHECK_PKT_LARGER: {
             if (last) {
                 /* If this is last action, then there is no need to
@@ -7041,7 +7041,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
                                    remaining_acts, remaining_acts_len);
             break;
         }
-	}
+        }
 
         /* Check if need to store this and the remaining actions for later
          * execution. */

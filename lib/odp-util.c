@@ -1234,7 +1234,7 @@ format_odp_action(struct ds *ds, const struct nlattr *a,
         break;
     case OVS_ACTION_ATTR_SLAB:
         ds_put_cstr(ds, "slab");
-	break;
+        break;
     case OVS_ACTION_ATTR_CHECK_PKT_LEN:
         format_odp_check_pkt_len_action(ds, a, portno_names);
         break;
