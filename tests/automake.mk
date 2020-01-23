@@ -106,7 +106,6 @@ TESTSUITE_AT = \
 	tests/auto-attach.at \
 	tests/ovn.at \
 	tests/ovn-northd.at \
-	tests/ovn-nbctl.at \
 	tests/ovn-sbctl.at \
 	tests/ovn-controller.at \
 	tests/ovn-controller-vtep.at \
@@ -446,7 +445,6 @@ tests_ovstest_SOURCES = \
 	tests/test-netflow.c \
 	tests/test-odp.c \
 	tests/test-ofpbuf.c \
-	tests/test-ovn.c \
 	tests/test-packets.c \
 	tests/test-random.c \
 	tests/test-rcu.c \
