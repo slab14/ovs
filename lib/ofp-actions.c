@@ -367,6 +367,12 @@ enum ofp_raw_action_type {
     /* OF1.0+(31): void. */
     OFPAT_RAW_VERIFY,    
 
+    /* OF1.0+(32): void. */
+    OFPAT_RAW_SIGNKERNEL,
+
+    /* OF1.0+(33): void. */
+    OFPAT_RAW_VERIFYKERNEL,    
+
 /* ## ------------------ ## */
 /* ## Debugging actions. ## */
 /* ## ------------------ ## */
@@ -507,7 +513,9 @@ ofpact_next_flattened(const struct ofpact *ofpact)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
-    case OFPACT_VERIFY:      
+    case OFPACT_VERIFY:
+    case OFPACT_SIGNKERNEL:
+    case OFPACT_VERIFYKERNEL:            
         return ofpact_next(ofpact);
 
     case OFPACT_CLONE:
@@ -1985,6 +1993,86 @@ check_VERIFY(const struct ofpact_null *a OVS_UNUSED,
 {
   return 0;
 }
+
+
+//KERNEL VERSION SIGN VERIFY
+
+
+/* Sign KERNEL */
+static void
+encode_SIGNKERNEL(const struct ofpact_null *null OVS_UNUSED,
+            enum ofp_version ofp_version OVS_UNUSED,
+            struct ofpbuf *out)
+{
+  put_OFPAT_SIGNKERNEL(out);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_SIGNKERNEL(struct ofpbuf *out)
+{
+  ofpact_put_SIGNKERNEL(out)->ofpact.raw = OFPAT_RAW_SIGNKERNEL;
+  return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_SIGNKERNEL(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
+{
+  ofpact_put_SIGNKERNEL(pp->ofpacts)->ofpact.raw = OFPAT_RAW_SIGNKERNEL;
+  return NULL;
+}
+
+static void
+format_SIGNKERNEL(const struct ofpact_null *a OVS_UNUSED,
+            const struct ofpact_format_params *fp)
+{
+  ds_put_format(fp->s, "%ssignkernel%s", colors.value, colors.end);
+}
+
+static enum ofperr
+check_SIGNKERNEL(const struct ofpact_null *a OVS_UNUSED,
+           const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+
+/* Verify KERNEL */
+static void
+encode_VERIFYKERNEL(const struct ofpact_null *null OVS_UNUSED,
+            enum ofp_version ofp_version OVS_UNUSED,
+            struct ofpbuf *out)
+{
+  put_OFPAT_VERIFYKERNEL(out);
+}
+
+static enum ofperr
+decode_OFPAT_RAW_VERIFYKERNEL(struct ofpbuf *out)
+{
+  ofpact_put_VERIFYKERNEL(out)->ofpact.raw = OFPAT_RAW_VERIFYKERNEL;
+  return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_VERIFYKERNEL(char *arg OVS_UNUSED, const struct ofpact_parse_params *pp)
+{
+  ofpact_put_VERIFYKERNEL(pp->ofpacts)->ofpact.raw = OFPAT_RAW_VERIFYKERNEL;
+  return NULL;
+}
+
+static void
+format_VERIFYKERNEL(const struct ofpact_null *a OVS_UNUSED,
+            const struct ofpact_format_params *fp)
+{
+  ds_put_format(fp->s, "%sverifykernel%s", colors.value, colors.end);
+}
+
+static enum ofperr
+check_VERIFYKERNEL(const struct ofpact_null *a OVS_UNUSED,
+           const struct ofpact_check_params *cp OVS_UNUSED)
+{
+  return 0;
+}
+
+
     
 
 /* Action structure for OFPAT10_SET_DL_SRC/DST and OFPAT11_SET_DL_SRC/DST. */
@@ -7856,7 +7944,9 @@ ofpact_copy(struct ofpbuf *out, const struct ofpact *a)
     SLOT(OFPACT_DEC_MPLS_TTL)                   \
     SLOT(OFPACT_DEC_NSH_TTL)                    \
     SLOT(OFPACT_SIGN)                           \
-    SLOT(OFPACT_VERIFY)  
+    SLOT(OFPACT_VERIFY)                         \
+    SLOT(OFPACT_SIGNKERNEL)                     \
+    SLOT(OFPACT_VERIFYKERNEL)  
 
 /* Priority for "final actions" in an action set.  An action set only gets
  * executed at all if at least one of these actions is present.  If more than
@@ -8157,7 +8247,9 @@ ovs_instruction_type_from_ofpact_type(enum ofpact_type type,
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
-    case OFPACT_VERIFY:      
+    case OFPACT_VERIFY:   
+    case OFPACT_SIGNKERNEL:
+    case OFPACT_VERIFYKERNEL:     
     default:
         return OVSINST_OFPIT11_APPLY_ACTIONS;
     }
@@ -9070,7 +9162,9 @@ ofpact_outputs_to_port(const struct ofpact *ofpact, ofp_port_t port)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_SIGN:
-    case OFPACT_VERIFY:      
+    case OFPACT_VERIFY:
+    case OFPACT_SIGNKERNEL:
+    case OFPACT_VERIFYKERNEL:        
     default:
         return false;
     }

@@ -989,6 +989,8 @@ enum ovs_action_attr {
 	OVS_ACTION_ATTR_CHECK_PKT_LEN, /* Nested OVS_CHECK_PKT_LEN_ATTR_*. */
 	OVS_ACTION_ATTR_SIGN = 23,         /* No argument. */
 	OVS_ACTION_ATTR_VERIFY = 24,         /* No argument. */	
+	OVS_ACTION_ATTR_SIGNKERNEL,         /* No argument. */
+	OVS_ACTION_ATTR_VERIFYKERNEL,         /* No argument. */	
 
 #ifndef __KERNEL__
 	OVS_ACTION_ATTR_TUNNEL_PUSH,   /* struct ovs_action_push_tnl*/

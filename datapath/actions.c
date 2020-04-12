@@ -45,6 +45,30 @@
 #include "flow_netlink.h"
 
 
+// static bool sign()
+// {
+	// printk("printk sign\n");
+    // FILE *f;
+	// int addr_esp = 1;
+	// f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
+	// if (f == NULL) { /* Something is wrong   */}
+	// fprintf(f, "sign actions.c:    %p \n", &addr_esp );
+	// fclose(f);
+	// return true;
+// }
+
+// static bool verify()
+// {
+	// printk("printk verify\n");
+    // FILE *f;
+	// int addr_esp = 1;
+	// f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
+	// if (f == NULL) { /* Something is wrong   */}
+	// fprintf(f, "verify actions.c:   %p \n", &addr_esp );
+	// fclose(f);
+// 	return true;
+// }
+
 
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
@@ -1266,6 +1290,8 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	const struct nlattr *a;
 	int rem;
 
+	// open("./tmp/aaa", "a+");
+
 	for (a = attr, rem = len; rem > 0;
 	     a = nla_next(a, &rem)) {
 		int err = 0;
@@ -1274,12 +1300,22 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 		case OVS_ACTION_ATTR_OUTPUT: {
 			int port = nla_get_u32(a);
 			struct sk_buff *clone;
-
+			// struct sk_buff *clone2;
 			/* Every output action needs a separate clone
 			 * of 'skb', In case the output action is the
 			 * last action, cloning can be avoided.
 			 */
+
+
+
 			if (nla_is_last(a, rem)) {
+				/* Sending double packet, Minions test
+				*/
+
+				// clone2 = skb_clone(skb, GFP_ATOMIC);
+				// if (clone2)
+				// do_output(dp, clone2, port, key);
+
 				do_output(dp, skb, port, key);
 				/* 'skb' has been used for output.
 				 */
@@ -1430,9 +1466,26 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                 }
 
                 case OVS_ACTION_ATTR_SIGN: {
+
+				// FILE *f;
+				// int addr_esp = 1;
+				// f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
+				// if (f == NULL) { /* Something is wrong   */}
+				// fprintf(f, "actions.c:    %p \n", &addr_esp );
+				// fclose(f);
+
+
                     break;
                 }
                 case OVS_ACTION_ATTR_VERIFY: {
+                    break;
+                } 
+                case OVS_ACTION_ATTR_SIGNKERNEL: {
+					// sign();
+                    break;
+                }
+                case OVS_ACTION_ATTR_VERIFYKERNEL: {
+					// verify();
                     break;
                 } 
   

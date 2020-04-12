@@ -127,6 +127,8 @@ struct vl_mff_map;
            "check_pkt_larger")                                          \
     OFPACT(SIGN,            ofpact_null,        ofpact, "sign")         \
     OFPACT(VERIFY,          ofpact_null,        ofpact, "verify")       \
+    OFPACT(SIGNKERNEL,         ofpact_null,     ofpact, "signkernel")   \
+    OFPACT(VERIFYKERNEL,       ofpact_null,     ofpact, "verifykernel") \
                                                                         \
     /* Debugging actions.                                               \
      *                                                                  \

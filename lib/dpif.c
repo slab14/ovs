@@ -1257,7 +1257,9 @@ dpif_execute_helper_cb(void *aux_, struct dp_packet_batch *packets_,
         break;
     }
     case OVS_ACTION_ATTR_SIGN:
-    case OVS_ACTION_ATTR_VERIFY:       
+    case OVS_ACTION_ATTR_VERIFY:
+    case OVS_ACTION_ATTR_SIGNKERNEL:
+    case OVS_ACTION_ATTR_VERIFYKERNEL:          
     case OVS_ACTION_ATTR_HASH:
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
