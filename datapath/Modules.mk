@@ -19,6 +19,8 @@ dist_modules = $(both_modules)	# Modules to distribute
 openvswitch_sources = \
 	actions.c \
 	conntrack.c \
+	sha1.c \
+	hmac-sha1.c \
 	datapath.c \
 	dp_notify.c \
 	flow.c \
@@ -39,6 +41,9 @@ nsh_sources = nsh.c
 
 openvswitch_headers = \
 	compat.h \
+	xmhfcrypto.h \
+	sha1.h \
+	hmac-sha1.h \
 	conntrack.h \
 	datapath.h \
 	flow.h \
