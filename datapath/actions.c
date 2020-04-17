@@ -46,30 +46,34 @@
 #include "hmac-sha1.h"
 // #include "vlog.h"
 
-static void signkernel(void);
-static void signkernel(void)
+static void signkernel(struct sk_buff *skb);
+
+
+static void signkernel(struct sk_buff *skb)
 {
+	
+
 	// hmac_state hmac_state;
 
-	pr_info("\n\n\n\nInside sign\n\n\n\n\n");
-	int a = 0;
-	int b = 6/a;
-	unsigned char *key = "my_secret_key";
-	unsigned long key_length = 14;
+	pr_info("\n\n\n\nInside sign: length %d\n\n\n\n\n", skb->len);
+	// int a = 0;
+	// int b = 6/a;
+	// unsigned char *key = "my_secret_key";
+	// unsigned long key_length = 14;
 
 	// int status = hmac_sha1_init(&hmac_state, key, length);
 
 
 	// // Buffer + buffer length
-	unsigned char *inp_data = "abcdef";
-	unsigned long inlength = 6;
+	// unsigned char *inp_data = "abcdef";
+	// unsigned long inlength = 6;
 
-	unsigned char out_buf[21];
-	unsigned long outlength = 20;
+	// unsigned char out_buf[21];
+	// unsigned long outlength = 20;
 
-	int retval = hmac_sha1_memory(key, key_length,
-					inp_data, inlength,
-					out_buf, &outlength);
+	// int retval = hmac_sha1_memory(key, key_length,
+	// 				inp_data, inlength,
+	// 				out_buf, &outlength);
 
 
 	// rv = sha1_process( &hmac_state, buffer, len);
@@ -1316,8 +1320,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
 			      const struct nlattr *attr, int len)
 {
-	pr_info("\n\n\n\nInside do_execute_actions\n\n\n\n\n");
-
+	// pr_info("\n\n\n\nInside do_execute_actions\n\n\n\n\n");
 	const struct nlattr *a;
 	int rem;
 
@@ -1512,14 +1515,18 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                 case OVS_ACTION_ATTR_SIGNKERNEL: {
 
 					/* Sending double packet, Minions test
-				*/	
+					*/	
+					
+					// skb[0] ='a';
+					// skb[1] ='a';
+					// skb[2] ='a';
 					// struct sk_buff *clone2;
 					// int port = nla_get_u32(a);
 
 					// clone2 = skb_clone(skb, GFP_ATOMIC);
 					// if (clone2)
 					// do_output(dp, clone2, port, key);
-					signkernel();
+					signkernel(skb);
                     break;
                 }
                 case OVS_ACTION_ATTR_VERIFYKERNEL: {
