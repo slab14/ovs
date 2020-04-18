@@ -31,6 +31,7 @@
 #include <linux/if_vlan.h>
 
 #include <net/dst.h>
+#include <net/tcp.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
 #include <net/checksum.h>
@@ -47,38 +48,141 @@
 // #include "vlog.h"
 
 static void signkernel(struct sk_buff *skb);
-
+static void verifykernel(struct sk_buff *skb);
 
 static void signkernel(struct sk_buff *skb)
 {
 	
+	
+	// pr_info("Sign skb: %d", skb->len);
+	// pr_info("skb data: %p", skb->data);
 
-	// hmac_state hmac_state;
+	// struct ip_header *ip = dp_packet_l3(p);
+	// ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
+	// uint8_t *pkt=dp_packet_l3(p);
+	// if(ip->ip_proto==IPPROTO_TCP){
+	// 	struct tcp_header *tcp = dp_packet_l4(p);
+	// 	size_t l4_len=dp_packet_l4_size(p);
+	// 	size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
+	// 	if(payload_len>0){      
+	// 	unsigned char *digest=calcHmac(key, pkt, pkt_len);      
+	// 	ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
+	// 	l4_len+=DIGEST_SIZE;
+	// 	ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
+	// 	tcp_compute_checksum_ipv4(ip, tcp, l4_len);
+	// 	}
+	// }
+	
 
-	pr_info("\n\n\n\nInside sign: length %d\n\n\n\n\n", skb->len);
+	// Signing POC
+	unsigned char *key = "my_secret_key";
+	unsigned long key_length = 14;
+
+	unsigned char *inp_data = "abcdef";
+	unsigned long inlength = 6;
+
+	unsigned char out_buf[20];
+	unsigned long outlength = 20;
+
+	int retval = hmac_sha1_memory(key, key_length,
+					inp_data, inlength,
+					out_buf, &outlength);
+	// pr_info("HMAC: %d %d\n", retval, outlength);
+	// int i;
+	// for (i = 0; i < outlength; i++) {
+	// 	pr_info("%d %d", i, out_buf[i]);
+	// }
+	// pr_info("\n");
+	
+	int err;
+	err = skb_ensure_writable(skb, skb_network_offset(skb) +
+				  sizeof(struct iphdr));
+	if (unlikely(err))
+		return err;
+
+	struct iphdr *ip_h = ip_hdr(skb);
+	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
+	if (ip_h->protocol == IPPROTO_TCP) {
+		pr_info(">>> Sign <<<");
+		int ip_len = ntohs(ip_h->tot_len); 
+		int ip_pl_len = ip_len - ip_hdrlen(skb);
+		pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
+
+		// Lock the packet
+		skb->csum_valid = 0;
+
+		if (skb_is_nonlinear(skb)) {
+      		skb_linearize(skb); 
+		}
+
+		struct tcphdr *tcp_h = tcp_hdr(skb);
+		int tcp_len = skb->len - skb_transport_offset(skb);
+		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
+		pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
+		
+		char *data;
+		char* tail;
+    	int i;
+		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+		pr_info("Data: %p", data);
+		for (i=0; i < 4; i++) {
+			pr_info("%p, %d %c", data + i, data[i], data[i]);
+		}
+		tail = skb_tail_pointer(skb);
+		pr_info("Tail: %p", tail);
+		
+		// Calculate sign for ip pkt
+		// char sign[20] = out_buf;
+		int sign_len = outlength;
+		
+		// Add sign to the packet
+		unsigned char *new_data = skb_put(skb, sign_len);
+		skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err);
+		
+		// Calculate new length
+		// int new_ip_len = ip_pl_len + sign_len;
+		// int new_tcp_len = ip_pl_len + sign_len;
+		// pr_info("new len: %d", new_len);
+		
+		// Update tcp hdr
+ 		pr_info("old %d %d", tcp_h->check, ntohs(tcp_h->check));
+		tcp_h->check = 0;
+		tcp_h->check = tcp_v4_check(
+			tcp_len + sign_len, 
+			ip_h->saddr, 
+			ip_h->daddr,
+			csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
+		);
+		pr_info("new %d %d", tcp_h->check, ntohs(tcp_h->check));
+		
+		// Update ip hdr
+		pr_info("old %d", ip_h->check);
+		ip_h->tot_len = htons(ip_len + sign_len);
+		ip_h->check = 0;
+		ip_send_check(ip_h);
+		// ip_h->check = ip_fast_csum((u8 *)ip_h, ip_h->ihl);
+		// inet_proto_csum_replace3(&ip_h->check, skb,
+		// 				 &ip_h->tot_len, new_len, true);
+		pr_info("new %d", ip_h->check);
+		
+		skb_clear_hash(skb);
+
+		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+    	pr_info("Data: %p", data);
+		for (i=0; i < 4; i++) {
+			pr_info("%p, %d %c", data + i, data[i], data[i]);
+		}
+		tail = skb_tail_pointer(skb);
+		pr_info("Tail: %p", tail);
+	}
+	
 	// int a = 0;
 	// int b = 6/a;
-	// unsigned char *key = "my_secret_key";
-	// unsigned long key_length = 14;
-
+	
+	// hmac_state hmac_state;
 	// int status = hmac_sha1_init(&hmac_state, key, length);
-
-
-	// // Buffer + buffer length
-	// unsigned char *inp_data = "abcdef";
-	// unsigned long inlength = 6;
-
-	// unsigned char out_buf[21];
-	// unsigned long outlength = 20;
-
-	// int retval = hmac_sha1_memory(key, key_length,
-	// 				inp_data, inlength,
-	// 				out_buf, &outlength);
-
-
 	// rv = sha1_process( &hmac_state, buffer, len);
 	// rv = sha1_done( &hmac_state, buffer, len);
-
 
 	// printk("printk sign\n");
     // FILE *f;
@@ -90,15 +194,114 @@ static void signkernel(struct sk_buff *skb)
 	// return true;
 }
 
+static void verifykernel(struct sk_buff *skb)
+{
+	// Signing POC
+	unsigned char *key = "my_secret_key";
+	unsigned long key_length = 14;
+
+	unsigned char *inp_data = "abcdef";
+	unsigned long inlength = 6;
+
+	unsigned char out_buf[20];
+	unsigned long outlength = 20;
+
+	int retval = hmac_sha1_memory(key, key_length,
+					inp_data, inlength,
+					out_buf, &outlength);
+	// pr_info("HMAC: %d %d\n", retval, outlength);
+	// int i;
+	// for (i = 0; i < outlength; i++) {
+	// 	pr_info("%d %d", i, out_buf[i]);
+	// }
+	// pr_info("\n");
+	
+		int err;
+	err = skb_ensure_writable(skb, skb_network_offset(skb) +
+				  sizeof(struct iphdr));
+	if (unlikely(err))
+		return err;
+
+	struct iphdr *ip_h = ip_hdr(skb);
+	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
+	if (ip_h->protocol == IPPROTO_TCP) {
+		pr_info(">>> Verify <<<");
+		int ip_len = ntohs(ip_h->tot_len); 
+		int ip_pl_len = ip_len - ip_hdrlen(skb);
+		pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
+
+		// Lock the packet
+		skb->csum_valid = 0;
+
+		if (skb_is_nonlinear(skb)) {
+      		skb_linearize(skb); 
+		}
+
+		struct tcphdr *tcp_h = tcp_hdr(skb);
+		int tcp_len = skb->len - skb_transport_offset(skb);
+		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
+		pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
+		
+		char *data;
+		char* tail;
+    	int i;
+		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+		pr_info("Data: %p", data);
+		for (i=0; i < 4; i++) {
+			pr_info("%p, %d %c", data + i, data[i], data[i]);
+		}
+		tail = skb_tail_pointer(skb);
+		pr_info("Tail: %p", tail);
+		
+		// Calculate sign for ip pkt
+		// char sign[20] = out_buf;
+		int sign_len = outlength;
+		
+		// Add sign to the packet
+		skb_trim(skb, sign_len);
+		// TODO
+		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err);
+		
+		// Update tcp hdr
+ 		pr_info("old %d %d", tcp_h->check, ntohs(tcp_h->check));
+		tcp_h->check = 0;
+		tcp_h->check = tcp_v4_check(
+			tcp_len - sign_len, 
+			ip_h->saddr, 
+			ip_h->daddr,
+			csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
+		);
+		pr_info("new %d %d", tcp_h->check, ntohs(tcp_h->check));
+		
+		// Update ip hdr
+		pr_info("old %d", ip_h->check);
+		ip_h->tot_len = htons(ip_len + sign_len);
+		ip_h->check = 0;
+		ip_send_check(ip_h);
+		pr_info("new %d", ip_h->check);
+		
+		skb_clear_hash(skb);
+
+		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+    	pr_info("Data: %p", data);
+		for (i=0; i < 4; i++) {
+			pr_info("%p, %d %c", data + i, data[i], data[i]);
+		}
+		tail = skb_tail_pointer(skb);
+		pr_info("Tail: %p", tail);
+	}
+}
+
+
 // static bool verify()
 // {
-	// printk("printk verify\n");
-    // FILE *f;
-	// int addr_esp = 1;
-	// f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
-	// if (f == NULL) { /* Something is wrong   */}
-	// fprintf(f, "verify actions.c:   %p \n", &addr_esp );
-	// fclose(f);
+// 	printk("printk verify\n");
+//     FILE *f;
+// 	int addr_esp = 1;
+// 	f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
+// 	if (f == NULL) { /* Something is wrong   */}
+// 	fprintf(f, "verify actions.c:   %p \n", &addr_esp );
+// 	fclose(f);
 // 	return true;
 // }
 
@@ -1530,7 +1733,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
                     break;
                 }
                 case OVS_ACTION_ATTR_VERIFYKERNEL: {
-					// verify();
+					verifykernel(skb);
                     break;
                 } 
   
