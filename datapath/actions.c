@@ -113,18 +113,17 @@ static void signkernel(struct sk_buff *skb)
 		}
 
 		struct tcphdr *tcp_h = tcp_hdr(skb);
-		int tcp_len_bad = skb->len - skb_transport_offset(skb);
 		int tcp_len = ip_pl_len;
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		pr_info("tcp_h len: %d pay: %d bad: %d", tcp_len, tcp_pl_len, tcp_len_bad);
+		pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
 		
 		unsigned char *data;
 		char* tail;
-    	int i;
 		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
 		pr_info("Data: %p", data);
 		int m = 0;
 		if (tcp_pl_len > 4) m = 4;
+    	int i;
 		for (i=0; i < m; i++) {
 			pr_info("%p, %x", &data[i], data[i]);
 		}
@@ -173,7 +172,6 @@ static void signkernel(struct sk_buff *skb)
 		m = 0;
 		if (tcp_pl_len + sign_len > 4) m = 4;
 		for (i=0; i < m; i++) {
-			// data[i]='A';
 			pr_info("%p, %x", &data[i], data[i]);
 		}
 		tail = skb_tail_pointer(skb);
@@ -210,9 +208,9 @@ static void verifykernel(struct sk_buff *skb)
 	unsigned char out_buf[20];
 	unsigned long outlength = 20;
 
-	int retval = hmac_sha1_memory(key, key_length,
-					inp_data, inlength,
-					out_buf, &outlength);
+	// int retval = hmac_sha1_memory(key, key_length,
+	// 				inp_data, inlength,
+	// 				out_buf, &outlength);
 	// pr_info("HMAC: %d %d\n", retval, outlength);
 	// int i;
 	// for (i = 0; i < outlength; i++) {
@@ -220,7 +218,7 @@ static void verifykernel(struct sk_buff *skb)
 	// }
 	// pr_info("\n");
 	
-		int err;
+	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
 				  sizeof(struct iphdr));
 	if (unlikely(err))
@@ -250,11 +248,11 @@ static void verifykernel(struct sk_buff *skb)
 		
 		char *data;
 		char* tail;
-    	int i;
 		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
 		pr_info("Data: %p", data);
 		int m = 0;
 		if (tcp_pl_len > 4) m = 4;
+    	int i;
 		for (i=0; i < m; i++) {
 			pr_info("%p, %x", data + i, data[i]);
 		}
