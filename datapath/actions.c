@@ -45,33 +45,12 @@
 #include "vport.h"
 #include "flow_netlink.h"
 #include "hmac-sha1.h"
-// #include "vlog.h"
 
 static void signkernel(struct sk_buff *skb);
 static void verifykernel(struct sk_buff *skb);
 
 static void signkernel(struct sk_buff *skb)
 {
-	// pr_info("Sign skb: %d", skb->len);
-	// pr_info("skb data: %p", skb->data);
-
-	// struct ip_header *ip = dp_packet_l3(p);
-	// ovs_be16 pkt_len = ntohs(ip->ip_tot_len);
-	// uint8_t *pkt=dp_packet_l3(p);
-	// if(ip->ip_proto==IPPROTO_TCP){
-	// 	struct tcp_header *tcp = dp_packet_l4(p);
-	// 	size_t l4_len=dp_packet_l4_size(p);
-	// 	size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
-	// 	if(payload_len>0){      
-	// 	unsigned char *digest=calcHmac(key, pkt, pkt_len);      
-	// 	ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
-	// 	l4_len+=DIGEST_SIZE;
-	// 	ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
-	// 	tcp_compute_checksum_ipv4(ip, tcp, l4_len);
-	// 	}
-	// }
-	
-
 	// Signing POC
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = 25;
@@ -136,6 +115,7 @@ static void signkernel(struct sk_buff *skb)
 		int sign_len = 0;
 		
 		// Add sign to the packet
+		
 		// unsigned char *new_data = skb_put(skb, sign_len);
 		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
 		
@@ -178,29 +158,18 @@ static void signkernel(struct sk_buff *skb)
 		pr_info("Tail: %p", tail);
 	}
 	
-	// int a = 0;
-	// int b = 6/a;
-	
+
 	// hmac_state hmac_state;
 	// int status = hmac_sha1_init(&hmac_state, key, length);
 	// rv = sha1_process( &hmac_state, buffer, len);
 	// rv = sha1_done( &hmac_state, buffer, len);
-
-	// printk("printk sign\n");
-    // FILE *f;
-	// int addr_esp = 1;
-	// f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
-	// if (f == NULL) { /* Something is wrong   */}
-	// fprintf(f, "sign actions.c:    %p \n", &addr_esp );
-	// fclose(f);
-	// return true;
 }
 
 static void verifykernel(struct sk_buff *skb)
 {
 	// Signing POC
-	unsigned char *key = "my_secret_key";
-	unsigned long key_length = 14;
+	unsigned char *key = "super_secret_key_for_hmac";
+	unsigned long key_length = 25;
 
 	unsigned char *inp_data = "abcdef";
 	unsigned long inlength = 6;
@@ -246,7 +215,7 @@ static void verifykernel(struct sk_buff *skb)
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		pr_info("tcp_h len: %d pay: %d bad: %d", tcp_len, tcp_pl_len, tcp_len_bad);
 		
-		char *data;
+		unsigned char *data;
 		char* tail;
 		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
 		pr_info("Data: %p", data);
@@ -267,6 +236,7 @@ static void verifykernel(struct sk_buff *skb)
 		// Add sign to the packet
 		// skb_trim(skb, sign_len);
 		// TODO
+		// char *new_data;
 		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err);
 		
 		// Update tcp hdr
@@ -282,7 +252,7 @@ static void verifykernel(struct sk_buff *skb)
 		
 		// Update ip hdr
 		pr_info("old %d", ip_h->check);
-		ip_h->tot_len = htons(ip_len + sign_len);
+		ip_h->tot_len = htons(ip_len - sign_len);
 		ip_h->check = 0;
 		ip_send_check(ip_h);
 		pr_info("new %d", ip_h->check);
@@ -300,20 +270,6 @@ static void verifykernel(struct sk_buff *skb)
 		pr_info("Tail: %p", tail);
 	}
 }
-
-
-// static bool verify()
-// {
-// 	printk("printk verify\n");
-//     FILE *f;
-// 	int addr_esp = 1;
-// 	f = fopen("/tmp/ovs.log", "a+"); // a+ (create + append) option will allow appending which is useful in a log file
-// 	if (f == NULL) { /* Something is wrong   */}
-// 	fprintf(f, "verify actions.c:   %p \n", &addr_esp );
-// 	fclose(f);
-// 	return true;
-// }
-
 
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
