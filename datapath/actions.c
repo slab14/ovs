@@ -111,13 +111,13 @@ static void signkernel(struct sk_buff *skb)
 		
 		// Calculate sign for ip pkt
 		// char sign[20] = out_buf;
-		// int sign_len = outlength;
-		int sign_len = 0;
+		int sign_len = outlength;
+		// int sign_len = 0;
 		
 		// Add sign to the packet
 		
-		// unsigned char *new_data = skb_put(skb, sign_len);
-		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
+		unsigned char *new_data = skb_put(skb, sign_len);
+		skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
 		
 		// Calculate new length
 		// int new_ip_len = ip_pl_len + sign_len;
@@ -147,7 +147,7 @@ static void signkernel(struct sk_buff *skb)
 		
 		skb_clear_hash(skb);
 
-		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
     	pr_info("Data: %p", data);
 		m = 0;
 		if (tcp_pl_len + sign_len > 4) m = 4;
@@ -217,7 +217,7 @@ static void verifykernel(struct sk_buff *skb)
 		
 		unsigned char *data;
 		char* tail;
-		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
+		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
 		pr_info("Data: %p", data);
 		int m = 0;
 		if (tcp_pl_len > 4) m = 4;
@@ -230,11 +230,11 @@ static void verifykernel(struct sk_buff *skb)
 		
 		// Calculate sign for ip pkt
 		// char sign[20] = out_buf;
-		// int sign_len = outlength;
-		int sign_len = 0;
+		int sign_len = outlength;
+		// int sign_len = 20;
 
 		// Add sign to the packet
-		// skb_trim(skb, sign_len);
+		skb_trim(skb, skb->len - sign_len);
 		// TODO
 		// char *new_data;
 		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err);
