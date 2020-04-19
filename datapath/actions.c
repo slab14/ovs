@@ -55,15 +55,15 @@ static void signkernel(struct sk_buff *skb)
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = 25;
 
-	unsigned char *inp_data = "abcdef";
-	unsigned long inlength = 6;
+	// unsigned char *inp_data = "abcdef";
+	// unsigned long inlength = 6;
 
 	unsigned char out_buf[20];
 	unsigned long outlength = 20;
 
-	int retval = hmac_sha1_memory(key, key_length,
-					inp_data, inlength,
-					out_buf, &outlength);
+	// int retval = hmac_sha1_memory(key, key_length,
+	// 				inp_data, inlength,
+	// 				out_buf, &outlength);
 	// pr_info("HMAC: %d %d\n", retval, outlength);
 	// int i;
 	// for (i = 0; i < outlength; i++) {
@@ -96,36 +96,19 @@ static void signkernel(struct sk_buff *skb)
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
 		
-		unsigned char *data;
-		char* tail;
-		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
-		pr_info("Data: %p", data);
-		int m = 0;
-		if (tcp_pl_len > 4) m = 4;
-    	int i;
-		for (i=0; i < m; i++) {
-			pr_info("%p, %x", &data[i], data[i]);
-		}
-		tail = skb_tail_pointer(skb);
-		pr_info("Tail: %p", tail);
-		
 		// Calculate sign for ip pkt
-		// char sign[20] = out_buf;
 		int sign_len = outlength;
-		// int sign_len = 0;
 		
 		// Add sign to the packet
+		hmac_sha1_memory(key, key_length,
+					(char *) ip_h, ip_len,
+					out_buf, &outlength);
 		
 		unsigned char *new_data = skb_put(skb, sign_len);
 		skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
 		
-		// Calculate new length
-		// int new_ip_len = ip_pl_len + sign_len;
-		// int new_tcp_len = ip_pl_len + sign_len;
-		// pr_info("new len: %d", new_len);
-		
 		// Update tcp hdr
- 		pr_info("old checksum tcp %d %d", tcp_h->check, ntohs(tcp_h->check));
+ 		// pr_info("old checksum tcp %d %d", tcp_h->check, ntohs(tcp_h->check));
 		tcp_h->check = 0;
 		tcp_h->check = tcp_v4_check(
 			tcp_len + sign_len, 
@@ -133,36 +116,25 @@ static void signkernel(struct sk_buff *skb)
 			ip_h->daddr,
 			csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
 		);
-		pr_info("new checksum tcp %d %d", tcp_h->check, ntohs(tcp_h->check));
+		// pr_info("new checksum tcp %d %d", tcp_h->check, ntohs(tcp_h->check));
 		
 		// Update ip hdr
-		pr_info("old csum ip %d", ip_h->check);
+		// pr_info("old csum ip %d", ip_h->check);
 		ip_h->tot_len = htons(ip_len + sign_len);
 		ip_h->check = 0;
 		ip_send_check(ip_h);
-		// ip_h->check = ip_fast_csum((u8 *)ip_h, ip_h->ihl);
-		// inet_proto_csum_replace3(&ip_h->check, skb,
-		// 				 &ip_h->tot_len, new_len, true);
-		pr_info("new csum ip %d", ip_h->check);
+		// pr_info("new csum ip %d", ip_h->check);
 		
 		skb_clear_hash(skb);
 
+		char * data;
 		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
-    	pr_info("Data: %p", data);
-		m = 0;
-		if (tcp_pl_len + sign_len > 4) m = 4;
-		for (i=0; i < m; i++) {
-			pr_info("%p, %x", &data[i], data[i]);
+    	pr_info("Sign: %p", data);
+		int i;
+		for (i=0; i < sign_len; i++) {
+			pr_info("%d %x", data[i], data[i]);
 		}
-		tail = skb_tail_pointer(skb);
-		pr_info("Tail: %p", tail);
 	}
-	
-
-	// hmac_state hmac_state;
-	// int status = hmac_sha1_init(&hmac_state, key, length);
-	// rv = sha1_process( &hmac_state, buffer, len);
-	// rv = sha1_done( &hmac_state, buffer, len);
 }
 
 static void verifykernel(struct sk_buff *skb)
@@ -171,21 +143,12 @@ static void verifykernel(struct sk_buff *skb)
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = 25;
 
-	unsigned char *inp_data = "abcdef";
-	unsigned long inlength = 6;
+	// unsigned char *inp_data = "abcdef";
+	// unsigned long inlength = 6;
 
 	unsigned char out_buf[20];
 	unsigned long outlength = 20;
-
-	// int retval = hmac_sha1_memory(key, key_length,
-	// 				inp_data, inlength,
-	// 				out_buf, &outlength);
-	// pr_info("HMAC: %d %d\n", retval, outlength);
-	// int i;
-	// for (i = 0; i < outlength; i++) {
-	// 	pr_info("%d %d", i, out_buf[i]);
-	// }
-	// pr_info("\n");
+	unsigned char in_buf[20];
 	
 	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
@@ -215,32 +178,25 @@ static void verifykernel(struct sk_buff *skb)
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		pr_info("tcp_h len: %d pay: %d bad: %d", tcp_len, tcp_pl_len, tcp_len_bad);
 		
+		// Calculate sign for ip pkt
+		int sign_len = outlength;
+
 		unsigned char *data;
 		char* tail;
-		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
-		pr_info("Data: %p", data);
-		int m = 0;
-		if (tcp_pl_len > 4) m = 4;
-    	int i;
-		for (i=0; i < m; i++) {
-			pr_info("%p, %x", data + i, data[i]);
+		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
+		memcpy(in_buf, data, sign_len);
+		pr_info("Sign: %p", in_buf);
+		int i;
+		for (i=0; i < sign_len; i++) {
+			pr_info("%d %x", in_buf[i], in_buf[i]);
 		}
-		tail = skb_tail_pointer(skb);
-		pr_info("Tail: %p", tail);
 		
-		// Calculate sign for ip pkt
-		// char sign[20] = out_buf;
-		int sign_len = outlength;
-		// int sign_len = 20;
-
 		// Add sign to the packet
 		skb_trim(skb, skb->len - sign_len);
 		// TODO
-		// char *new_data;
-		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err);
 		
 		// Update tcp hdr
- 		pr_info("old %d %d", tcp_h->check, ntohs(tcp_h->check));
+ 		// pr_info("old %d %d", tcp_h->check, ntohs(tcp_h->check));
 		tcp_h->check = 0;
 		tcp_h->check = tcp_v4_check(
 			tcp_len - sign_len, 
@@ -248,26 +204,37 @@ static void verifykernel(struct sk_buff *skb)
 			ip_h->daddr,
 			csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
 		);
-		pr_info("new %d %d", tcp_h->check, ntohs(tcp_h->check));
+		// pr_info("new %d %d", tcp_h->check, ntohs(tcp_h->check));
 		
 		// Update ip hdr
-		pr_info("old %d", ip_h->check);
+		// pr_info("old %d", ip_h->check);
 		ip_h->tot_len = htons(ip_len - sign_len);
 		ip_h->check = 0;
 		ip_send_check(ip_h);
-		pr_info("new %d", ip_h->check);
+		// pr_info("new %d", ip_h->check);
 		
 		skb_clear_hash(skb);
 
-		data = (unsigned char *)((unsigned char *)tcp_h + (tcp_h->doff << 2));
-    	pr_info("Data: %p", data);
-		m = 0;
-		if (tcp_pl_len - sign_len > 4) m = 4;
-		for (i=0; i < m; i++) {
-			pr_info("%p, %x", data + i, data[i]);
+		hmac_sha1_memory(key, key_length,
+					(char *) ip_h, ip_len - sign_len,
+					out_buf, &outlength);
+		pr_info("Recalc Sign: %p", out_buf);
+		for (i=0; i < sign_len; i++) {
+			pr_info("%d %x", out_buf[i], out_buf[i]);
 		}
-		tail = skb_tail_pointer(skb);
-		pr_info("Tail: %p", tail);
+		
+		int valid = 1;
+		for (i=0; i < sign_len; i++) {
+			if (out_buf[i] != in_buf[i]) {
+				valid = 0;
+				break;
+			}
+		}
+		pr_info("Valid: %d", valid);
+		
+		// if (!valid) {
+		// 	discard();
+		// }
 	}
 }
 
