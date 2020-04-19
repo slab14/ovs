@@ -18,6 +18,8 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+
+#include <linux/errno.h>
 #include <linux/skbuff.h>
 #include <linux/in.h>
 #include <linux/ip.h>
@@ -104,9 +106,15 @@ static void signkernel(struct sk_buff *skb)
 					(char *) ip_h, ip_len,
 					out_buf, &outlength);
 		
+		err = 0;
+		int room = skb->tail - skb->end;
 		unsigned char *new_data = skb_put(skb, sign_len);
-		skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
+		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
+		memcpy((void*)new_data, out_buf, sign_len);
 		
+		pr_info("error csum_copy : %d; room available: %d; new_data: %p; ip_h: %p", err, room, new_data, ip_h);
+		
+
 		// Update tcp hdr
  		// pr_info("old checksum tcp %d %d", tcp_h->check, ntohs(tcp_h->check));
 		tcp_h->check = 0;
@@ -127,10 +135,15 @@ static void signkernel(struct sk_buff *skb)
 		
 		skb_clear_hash(skb);
 
+		pr_info("HMAC: %p", out_buf);
+		int i;
+		for (i=0; i < sign_len; i++) {
+			pr_info("%d %x", out_buf[i], out_buf[i]);
+		}
+		
 		char * data;
 		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
     	pr_info("Sign: %p", data);
-		int i;
 		for (i=0; i < sign_len; i++) {
 			pr_info("%d %x", data[i], data[i]);
 		}
@@ -218,7 +231,7 @@ static void verifykernel(struct sk_buff *skb)
 		hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len - sign_len,
 					out_buf, &outlength);
-		pr_info("Recalc Sign: %p", out_buf);
+		pr_info("HMAC: %p", out_buf);
 		for (i=0; i < sign_len; i++) {
 			pr_info("%d %x", out_buf[i], out_buf[i]);
 		}
