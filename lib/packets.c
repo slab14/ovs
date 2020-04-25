@@ -37,7 +37,7 @@
 
 #include <openssl/hmac.h>
 
-#define DIGEST_SIZE 16  /* Digest size in bytes, MD5 */
+#define DIGEST_SIZE 20  /* Digest size in bytes, MD5 */
 
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
@@ -60,7 +60,7 @@ unsigned char *
 calcHmac(char *key, uint8_t *data, uint32_t len)
 {
   unsigned char *digest;
-  digest=HMAC(EVP_md5(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
+  digest=HMAC(EVP_sha1(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
   return digest;
 }
 

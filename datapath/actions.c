@@ -56,13 +56,10 @@ static void signkernel(struct sk_buff *skb)
 	// Signing POC
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = 25;
-
 	// unsigned char *inp_data = "abcdef";
 	// unsigned long inlength = 6;
-
 	unsigned char out_buf[20];
 	unsigned long outlength = 20;
-
 	// int retval = hmac_sha1_memory(key, key_length,
 	// 				inp_data, inlength,
 	// 				out_buf, &outlength);
@@ -72,7 +69,6 @@ static void signkernel(struct sk_buff *skb)
 	// 	pr_info("%d %d", i, out_buf[i]);
 	// }
 	// pr_info("\n");
-	
 	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
 				  sizeof(struct iphdr));
@@ -82,10 +78,10 @@ static void signkernel(struct sk_buff *skb)
 	struct iphdr *ip_h = ip_hdr(skb);
 	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
 	if (ip_h->protocol == IPPROTO_TCP) {
-		pr_info(">>> Sign <<<");
+		// pr_info(">>> Sign <<<");
 		int ip_len = ntohs(ip_h->tot_len); 
 		int ip_pl_len = ip_len - ip_hdrlen(skb);
-		pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
+		// pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
 
 		// Lock the packet
 		skb->csum_valid = 0;
@@ -96,7 +92,7 @@ static void signkernel(struct sk_buff *skb)
 		struct tcphdr *tcp_h = tcp_hdr(skb);
 		int tcp_len = ip_pl_len;
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
+		// pr_info("tcp_h len: %d pay: %d", tcp_len, tcp_pl_len);
 		
 		// Calculate sign for ip pkt
 		int sign_len = outlength;
@@ -112,7 +108,7 @@ static void signkernel(struct sk_buff *skb)
 		// skb->csum = csum_and_copy_from_user((char *)out_buf, new_data, sign_len, 0, &err); 
 		memcpy((void*)new_data, out_buf, sign_len);
 		
-		pr_info("error csum_copy : %d; room available: %d; new_data: %p; ip_h: %p", err, room, new_data, ip_h);
+		// pr_info("error csum_copy : %d; room available: %d; new_data: %p; ip_h: %p", err, room, new_data, ip_h);
 		
 
 		// Update tcp hdr
@@ -135,18 +131,18 @@ static void signkernel(struct sk_buff *skb)
 		
 		skb_clear_hash(skb);
 
-		pr_info("HMAC: %p", out_buf);
+		// pr_info("HMAC: %p", out_buf);
 		int i;
-		for (i=0; i < sign_len; i++) {
-			pr_info("%d %x", out_buf[i], out_buf[i]);
-		}
+		// for (i=0; i < sign_len; i++) {
+		// 	pr_info("%d %x", out_buf[i], out_buf[i]);
+		// }
 		
-		char * data;
-		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
-    	pr_info("Sign: %p", data);
-		for (i=0; i < sign_len; i++) {
-			pr_info("%d %x", data[i], data[i]);
-		}
+		// char * data;
+		// data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len + (tcp_h->doff << 2));
+    	// pr_info("Sign: %p", data);
+		// for (i=0; i < sign_len; i++) {
+		// 	pr_info("%d %x", data[i], data[i]);
+		// }
 	}
 }
 
@@ -172,10 +168,10 @@ static void verifykernel(struct sk_buff *skb)
 	struct iphdr *ip_h = ip_hdr(skb);
 	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
 	if (ip_h->protocol == IPPROTO_TCP) {
-		pr_info(">>> Verify <<<");
+		// pr_info(">>> Verify <<<");
 		int ip_len = ntohs(ip_h->tot_len); 
 		int ip_pl_len = ip_len - ip_hdrlen(skb);
-		pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
+		// pr_info("ip_h len: %d pay: %d", ip_len, ip_pl_len);
 
 		// Lock the packet
 		skb->csum_valid = 0;
@@ -189,7 +185,7 @@ static void verifykernel(struct sk_buff *skb)
 		int tcp_len = ip_pl_len;
 
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		pr_info("tcp_h len: %d pay: %d bad: %d", tcp_len, tcp_pl_len, tcp_len_bad);
+		// pr_info("tcp_h len: %d pay: %d bad: %d", tcp_len, tcp_pl_len, tcp_len_bad);
 		
 		// Calculate sign for ip pkt
 		int sign_len = outlength;
@@ -198,11 +194,11 @@ static void verifykernel(struct sk_buff *skb)
 		char* tail;
 		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
 		memcpy(in_buf, data, sign_len);
-		pr_info("Sign: %p", in_buf);
+		// pr_info("Sign: %p", in_buf);
 		int i;
-		for (i=0; i < sign_len; i++) {
-			pr_info("%d %x", in_buf[i], in_buf[i]);
-		}
+		// for (i=0; i < sign_len; i++) {
+			// pr_info("%d %x", in_buf[i], in_buf[i]);
+		// }
 		
 		// Add sign to the packet
 		skb_trim(skb, skb->len - sign_len);
@@ -231,10 +227,10 @@ static void verifykernel(struct sk_buff *skb)
 		hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len - sign_len,
 					out_buf, &outlength);
-		pr_info("HMAC: %p", out_buf);
-		for (i=0; i < sign_len; i++) {
-			pr_info("%d %x", out_buf[i], out_buf[i]);
-		}
+		// pr_info("HMAC: %p", out_buf);
+		// for (i=0; i < sign_len; i++) {
+		// 	pr_info("%d %x", out_buf[i], out_buf[i]);
+		// }
 		
 		int valid = 1;
 		for (i=0; i < sign_len; i++) {
@@ -243,8 +239,7 @@ static void verifykernel(struct sk_buff *skb)
 				break;
 			}
 		}
-		pr_info("Valid: %d", valid);
-		
+		// pr_info("Valid: %d", valid);
 		// if (!valid) {
 		// 	discard();
 		// }
@@ -1468,7 +1463,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			      struct sw_flow_key *key,
 			      const struct nlattr *attr, int len)
 {
-	pr_info("\n\nInside do_execute_actions\n");
 	const struct nlattr *a;
 	int rem;
 
