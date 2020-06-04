@@ -8,7 +8,8 @@ bin_SCRIPTS += utilities/ovs-docker \
 	utilities/ovs-pki \
 	utilities/ovs-pcap \
 	utilities/ovs-tcpdump \
-	utilities/ovs-tcpundump
+	utilities/ovs-tcpundump \
+        utilities/ovs-docker-remote
 if HAVE_PYTHON2
 bin_SCRIPTS += \
 	utilities/ovs-dpctl-top \
@@ -44,6 +45,7 @@ EXTRA_DIST += \
 	utilities/ovs-ctl.in \
 	utilities/ovs-dev.py \
 	utilities/ovs-docker \
+        utilities/ovs-docker-remote \
 	utilities/ovs-dpctl-top.in \
 	utilities/ovs-kmod-ctl.in \
 	utilities/ovs-l3ping.in \
