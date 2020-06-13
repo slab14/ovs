@@ -47,6 +47,7 @@
 #include "vport.h"
 #include "flow_netlink.h"
 #include "hmac-sha1.h"
+#include "hypsign.h"
 
 
 /**
@@ -86,12 +87,14 @@ unsigned long string_length(unsigned char *string_input) {
  */
 static void signkernel(struct sk_buff *skb)
 {
+        /*
 	// Change the key as required. 
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = string_length(key);
 	// unsigned long key_length = 25;
+	*/
 	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
-	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
+	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
 	
 	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
@@ -118,13 +121,13 @@ static void signkernel(struct sk_buff *skb)
 		int tcp_len = ip_pl_len;
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		
-		// Calculate sign for ip pkt
-		int sign_len = outlength;
-		
 		// Add sign to the packet
+		/*
 		hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len,
 					out_buf, &outlength);
+		*/
+		hyp_hmac((char *)ip_h, ip_len, out_buf);;
 		
 		// Adding the contents of the sign to the packet
 		unsigned char *new_data = skb_put(skb, sign_len);
@@ -153,13 +156,14 @@ static void signkernel(struct sk_buff *skb)
  */
 static int verifykernel(struct sk_buff *skb)
 {
+        /*
 	// Change the key as required. 
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = string_length(key);
 	// unsigned long key_length = 25;
-
+	*/
 	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
-	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
+	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
 	unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH];
 	
 	int err;
@@ -185,12 +189,12 @@ static int verifykernel(struct sk_buff *skb)
 		struct tcphdr *tcp_h = tcp_hdr(skb);
 		int tcp_len = ip_pl_len;
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		
+		/*
 		// Calculate sign for ip pkt
 		int sign_len = outlength;
-
+		*/
 		unsigned char *data;
-		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
+		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2) + 2);
 		memcpy(in_buf, data, sign_len);
 
 		// Remove sign from the packet
@@ -211,10 +215,13 @@ static int verifykernel(struct sk_buff *skb)
 		ip_send_check(ip_h);
 		
 		skb_clear_hash(skb);
-
+		
+		/*
 		hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len - sign_len,
 					out_buf, &outlength);
+		*/
+		hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
 		
 		// Check if the signature is valid - If not, return -1
 		int valid = 0;
