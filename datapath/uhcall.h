@@ -57,8 +57,7 @@ typedef struct {
 } uhcallkmod_param_t;
 
 
-bool uhcall_va2pa(void *vaddr, uint64_t *paddr);
-bool uhcall(uint32_t uhcall_function, void *uhcall_buffer, uint32_t uhcall_buffer_len);
+bool uhcall(uint32_t uhcall_function, uint32_t uhcall_buffer_pa, uint32_t uhcall_buffer_len);
 
 
 #endif // __ASSEMBLY__
