@@ -226,7 +226,8 @@ static int verifykernel(struct sk_buff *skb)
 		// Check if the signature is valid - If not, return -1
 		int valid = 0;
 		int i;
-		for (i=0; i < sign_len; i++) {
+		// raspberry pi is mauling the last 2 bytes.
+		for (i=0; i < (sign_len-2); i++) {
 			if (out_buf[i] != in_buf[i]) {
 				valid = -1;
 				break;
