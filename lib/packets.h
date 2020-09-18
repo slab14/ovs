@@ -33,7 +33,7 @@
 #include "unaligned.h"
 #include "util.h"
 #include "timeval.h"
-
+#include "uhcall.h"
 
 
 struct dp_packet;
@@ -63,6 +63,7 @@ ovs_be16 remove_data_from_end(struct dp_packet *p, size_t size);
 void add_sign(struct dp_packet *p, char *key);
 bool verify_sign(struct dp_packet *p, char *key);
 unsigned char * calcHmac(char *key, uint8_t *data, uint32_t len);
+unsigned char * hypHmac(char *key, uint8_t *data, uint32_t len);
 
 /* Returns an offset to 'src' covering all the meaningful fields in 'src'. */
 static inline size_t

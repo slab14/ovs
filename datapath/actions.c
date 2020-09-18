@@ -87,15 +87,15 @@ unsigned long string_length(unsigned char *string_input) {
  */
 static void signkernel(struct sk_buff *skb)
 {
-        /*
+
 	// Change the key as required. 
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = string_length(key);
 	// unsigned long key_length = 25;
-	*/
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
+
+	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;	
 	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
-	
+	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
 	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
 				  sizeof(struct iphdr));
@@ -122,32 +122,35 @@ static void signkernel(struct sk_buff *skb)
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		
 		// Add sign to the packet
-		/*
-		hmac_sha1_memory(key, key_length,
+                if(tcp_pl_len>0) {
+		  /*
+		    hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len,
-					out_buf, &outlength);
-		*/
-		hyp_hmac((char *)ip_h, ip_len, out_buf);;
-		
-		// Adding the contents of the sign to the packet
-		unsigned char *new_data = skb_put(skb, sign_len);
-		memcpy((void*)new_data, out_buf, sign_len);
+		  			out_buf, &outlength);
+		  */
+      		    hyp_hmac((char *)ip_h, ip_len, out_buf);;
 
-		// Update tcp hdr
- 		tcp_h->check = 0;
-		tcp_h->check = tcp_v4_check(
-			tcp_len + sign_len, 
-			ip_h->saddr, 
-			ip_h->daddr,
-			csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
-		);
 		
-		// Update ip hdr
-		ip_h->tot_len = htons(ip_len + sign_len);
-		ip_h->check = 0;
-		ip_send_check(ip_h);
+         		// Adding the contents of the sign to the packet
+	        	unsigned char *new_data = skb_put(skb, sign_len);
+		        memcpy((void*)new_data, out_buf, sign_len);
+
+         		// Update tcp hdr
+ 	        	tcp_h->check = 0;
+		        tcp_h->check = tcp_v4_check(
+			        tcp_len + sign_len, 
+        			ip_h->saddr, 
+	        		ip_h->daddr,
+		        	csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
+        		);
 		
-		skb_clear_hash(skb);
+	        	// Update ip hdr
+		        ip_h->tot_len = htons(ip_len + sign_len);
+        		ip_h->check = 0;
+	        	ip_send_check(ip_h);
+		
+		        skb_clear_hash(skb);
+		}			
 	}
 }
 /**
@@ -156,16 +159,16 @@ static void signkernel(struct sk_buff *skb)
  */
 static int verifykernel(struct sk_buff *skb)
 {
-        /*
+
 	// Change the key as required. 
 	unsigned char *key = "super_secret_key_for_hmac";
 	unsigned long key_length = string_length(key);
 	// unsigned long key_length = 25;
-	*/
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
+	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;		
+
 	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
 	unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH];
-	
+	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
 	int err;
 	err = skb_ensure_writable(skb, skb_network_offset(skb) +
 				  sizeof(struct iphdr));
@@ -183,57 +186,55 @@ static int verifykernel(struct sk_buff *skb)
 		skb->csum_valid = 0;
 
 		if (skb_is_nonlinear(skb)) {
-      		skb_linearize(skb); 
+      		        skb_linearize(skb); 
 		}
 
 		struct tcphdr *tcp_h = tcp_hdr(skb);
 		int tcp_len = ip_pl_len;
 		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		/*
-		// Calculate sign for ip pkt
-		int sign_len = outlength;
-		*/
-		unsigned char *data;
-		data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2) + 2);
-		memcpy(in_buf, data, sign_len);
 
-		// Remove sign from the packet
-		skb_trim(skb, skb->len - sign_len);
+                if(tcp_pl_len>HMAC_SHA1_DIGEST_LENGTH) {
+         		unsigned char *data;
+	        	data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2) + 2);
+		        memcpy(in_buf, data, sign_len);
+
+         		// Remove sign from the packet
+	        	skb_trim(skb, skb->len - sign_len);
 		
-		// Update tcp hdr
-		tcp_h->check = 0;
-		tcp_h->check = tcp_v4_check(
-			tcp_len - sign_len, 
-			ip_h->saddr, 
-			ip_h->daddr,
-			csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
-		);
+		        // Update tcp hdr
+         		tcp_h->check = 0;
+	        	tcp_h->check = tcp_v4_check(
+		        	tcp_len - sign_len, 
+			        ip_h->saddr, 
+          			ip_h->daddr,
+	        		csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
+		        );
 		
-		// Update ip hdr
-		ip_h->tot_len = htons(ip_len - sign_len);
-		ip_h->check = 0;
-		ip_send_check(ip_h);
+        		// Update ip hdr
+	        	ip_h->tot_len = htons(ip_len - sign_len);
+		        ip_h->check = 0;
+         		ip_send_check(ip_h);
 		
-		skb_clear_hash(skb);
-		
-		/*
-		hmac_sha1_memory(key, key_length,
+	        	skb_clear_hash(skb);
+			/*
+         		hmac_sha1_memory(key, key_length,
 					(char *) ip_h, ip_len - sign_len,
 					out_buf, &outlength);
-		*/
-		hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
+			*/
+   		        hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
 		
-		// Check if the signature is valid - If not, return -1
-		int valid = 0;
-		int i;
-		// raspberry pi is mauling the last 2 bytes.
-		for (i=0; i < (sign_len-2); i++) {
-			if (out_buf[i] != in_buf[i]) {
-				valid = -1;
-				break;
-			}
-		}
-		return valid;
+        		// Check if the signature is valid - If not, return -1
+	        	int valid = 0;
+		        int i;
+        		// raspberry pi is mauling the last 2 bytes.
+	        	for (i=0; i < (sign_len-2); i++) {
+		        	if (out_buf[i] != in_buf[i]) {
+			        	valid = -1;
+				        break;
+         			}
+	        	}
+		        return valid;
+        	}
 	}
 	return 0;
 }

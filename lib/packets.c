@@ -36,8 +36,14 @@
 #include "unaligned.h"
 
 #include <openssl/hmac.h>
+#include "uhcall.h"
 
-#define DIGEST_SIZE 20  /* Digest size in bytes, MD5 */
+#include "openvswitch/vlog.h"
+VLOG_DEFINE_THIS_MODULE(packets);
+
+#define DIGEST_SIZE 20  /* Digest size in bytes, SHA1 */
+
+__attribute__((aligned(4096))) __attribute__((section(".data"))) uhsign_param_t uhcp;
 
 const struct in6_addr in6addr_exact = IN6ADDR_EXACT_INIT;
 const struct in6_addr in6addr_all_hosts = IN6ADDR_ALL_HOSTS_INIT;
@@ -61,7 +67,20 @@ calcHmac(char *key, uint8_t *data, uint32_t len)
 {
   unsigned char *digest;
   digest=HMAC(EVP_sha1(), key, strlen(key), (unsigned char*)data, len, NULL, NULL);
+  int i;
   return digest;
+}
+
+unsigned char *
+hypHmac(char *key, uint8_t *data, uint32_t len)
+{
+  memcpy(&uhcp.pkt, data, len);
+  uhcp.pkt_size=len;
+  uhsign_param_t *uhcp_ptr = &uhcp;
+  if(uhcall(UAPP_UHSIGN_FUNCTION_SIGN, uhcp_ptr, sizeof(uhsign_param_t)))
+    return uhcp_ptr->digest;
+
+  return NULL;
 }
 
 void
@@ -116,7 +135,8 @@ add_sign(struct dp_packet *p, char *key)
     size_t l4_len=dp_packet_l4_size(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
     if(payload_len>0){      
-      unsigned char *digest=calcHmac(key, pkt, pkt_len);      
+      //unsigned char *digest=calcHmac(key, pkt, pkt_len);
+      unsigned char *digest=hypHmac(key, pkt, pkt_len);
       ovs_be16 new_pkt_len = add_data(p, digest, DIGEST_SIZE);  //pkt_len+DIGEST_SIZE;
       l4_len+=DIGEST_SIZE;
       ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
@@ -135,17 +155,25 @@ verify_sign(struct dp_packet *p, char *key)
     size_t l4_len=dp_packet_l4_size(p);
     struct tcp_header *tcp = dp_packet_l4(p);
     size_t payload_len=l4_len-(TCP_OFFSET(tcp->tcp_ctl)*4);
-    if(payload_len>=DIGEST_SIZE) {
+    if(payload_len>DIGEST_SIZE) {
       unsigned char oldDigest[DIGEST_SIZE];
       const char *payload = dp_packet_get_tcp_payload(p);
-      memcpy(oldDigest, payload+payload_len-DIGEST_SIZE, DIGEST_SIZE);
+      memcpy(oldDigest, payload+payload_len-DIGEST_SIZE+2, DIGEST_SIZE); //rpi places 2 extra bytes at end of packet
       ovs_be16 new_pkt_len = remove_data_from_end(p, DIGEST_SIZE); //pkt_len-DIGEST_SIZE;
       l4_len-=DIGEST_SIZE;
       ip->ip_csum = recalc_csum16(ip->ip_csum, htons(pkt_len), htons(new_pkt_len));
       tcp_compute_checksum_ipv4(ip, tcp, l4_len);
       uint8_t *pkt=dp_packet_l3(p);
-      unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
-      if(compare(digest, oldDigest, DIGEST_SIZE)==0) {
+      //unsigned char *digest=calcHmac(key, pkt, new_pkt_len);
+      unsigned char *digest=hypHmac(key, pkt, new_pkt_len);      
+      /*
+      int i;
+      for(i=0; i<DIGEST_SIZE; i++){
+          VLOG_INFO("MATT: %x | %x\n", digest[i], oldDigest[i]);
+      }
+      VLOG_INFO("MATT: ----------\n");
+      */
+      if(compare(digest, oldDigest, (DIGEST_SIZE-2))==0) {
         return true;
       }else{
         return false;
