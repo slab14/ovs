@@ -33,9 +33,9 @@
  */
 
 /*
-	libuhcall header
+    libuhcall header
 
-	author: amit vasudevan (amitvasudevan@acm.org)
+    author: amit vasudevan (amitvasudevan@acm.org)
 */
 
 #ifndef __UHCALL_H__
@@ -65,9 +65,9 @@ typedef struct {
 
 
 typedef struct {
-	unsigned long uhcall_function;
-	void *uhcall_buffer;
-	unsigned long uhcall_buffer_len;
+    unsigned long uhcall_function;
+    void *uhcall_buffer;
+    unsigned long uhcall_buffer_len;
 } uhcallkmod_param_t;
 
 

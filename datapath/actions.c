@@ -222,10 +222,15 @@ static int verifykernel(struct sk_buff *skb)
 					out_buf, &outlength);
 			*/
    		        hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
-		
+
         		// Check if the signature is valid - If not, return -1
 	        	int valid = 0;
 		        int i;
+
+			// Debug print-out of hash
+			for(i=0;i<sign_len;i++)
+			  pr_info("%x | %x", out_buf[i], in_buf[i]);
+			
         		// raspberry pi is mauling the last 2 bytes.
 	        	for (i=0; i < (sign_len-2); i++) {
 		        	if (out_buf[i] != in_buf[i]) {
