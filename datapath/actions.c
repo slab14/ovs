@@ -195,7 +195,8 @@ static int verifykernel(struct sk_buff *skb)
 
                 if(tcp_pl_len>HMAC_SHA1_DIGEST_LENGTH) {
          		unsigned char *data;
-	        	data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2) + 2);
+			// issue with usb-eth dongle adding 2 bytes.
+	        	data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
 		        memcpy(in_buf, data, sign_len);
 
          		// Remove sign from the packet
