@@ -87,70 +87,70 @@ unsigned long string_length(unsigned char *string_input) {
  */
 static void signkernel(struct sk_buff *skb)
 {
-
-	// Change the key as required. 
-	unsigned char *key = "super_secret_key_for_hmac";
-	unsigned long key_length = string_length(key);
-	// unsigned long key_length = 25;
-
-	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;	
+        // Change the key as required. 
+	//unsigned char *key = "super_secret_key_for_hmac";
+	//unsigned long key_length = string_length(key);
+	//unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
+  
 	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
-	int err;
-	err = skb_ensure_writable(skb, skb_network_offset(skb) +
-				  sizeof(struct iphdr));
+	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+	struct iphdr *ip_h = ip_hdr(skb);	
+	int err = skb_ensure_writable(skb, skb_network_offset(skb) +
+				      sizeof(struct iphdr));
 	if (unlikely(err))
-		return err;
-
-	struct iphdr *ip_h = ip_hdr(skb);
+	  return;
 	
 	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
 	if (ip_h->protocol == IPPROTO_TCP) {
-		// pr_info("Log way by using the command dmesg");
-		int ip_len = ntohs(ip_h->tot_len); 
-		int ip_pl_len = ip_len - ip_hdrlen(skb);
+	  // pr_info("Log way by using the command dmesg");
+	  int ip_len = ntohs(ip_h->tot_len); 
+	  int ip_pl_len = ip_len - ip_hdrlen(skb);
+	  struct tcphdr *tcp_h = tcp_hdr(skb);
+	  int tcp_len = ip_pl_len;
+	  // Modify the length of the TCP header	  
+	  int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 
-		// Lock the packet
-		skb->csum_valid = 0;
-		if (skb_is_nonlinear(skb)) {
-      		skb_linearize(skb); 
-		}
+	  // Lock the packet
+	  skb->csum_valid = 0;
+	  if (skb_is_nonlinear(skb)) {
+	    skb_linearize(skb); 
+	  }
 
-		// Modify the length of the TCP header
-		struct tcphdr *tcp_h = tcp_hdr(skb);
-		int tcp_len = ip_pl_len;
-		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		
-		// Add sign to the packet
-                if(tcp_pl_len>0) {
-		  /*
-		    hmac_sha1_memory(key, key_length,
-					(char *) ip_h, ip_len,
-		  			out_buf, &outlength);
-		  */
-      		    hyp_hmac((char *)ip_h, ip_len, out_buf);;
+	  // Add sign to the packet
+	  if(tcp_pl_len>0) {
+	    unsigned char *new_data;
+	    int available_space = skb_tailroom(skb);
+	    
+	    /*
+	      hmac_sha1_memory(key, key_length,
+	                      (char *) ip_h, ip_len,
+                 	      out_buf, &outlength);
+	    */
+	    hyp_hmac((char *)ip_h, ip_len, out_buf);;
 
-		
-         		// Adding the contents of the sign to the packet
-	        	unsigned char *new_data = skb_put(skb, sign_len);
-		        memcpy((void*)new_data, out_buf, sign_len);
+	    // Adding the contents of the sign to the packet
+	    if(available_space<sign_len) {
+	      int needed_space=sign_len-available_space+1;
+	      skb_padto(skb,skb->len+needed_space);
+	    }
 
-         		// Update tcp hdr
- 	        	tcp_h->check = 0;
-		        tcp_h->check = tcp_v4_check(
-			        tcp_len + sign_len, 
-        			ip_h->saddr, 
-	        		ip_h->daddr,
-		        	csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
-        		);
+	    new_data = skb_put(skb, sign_len);
+	    memcpy((void*)new_data, out_buf, sign_len);
+
+	    // Update tcp hdr
+	    tcp_h->check = 0;
+	    tcp_h->check = tcp_v4_check(
+          			tcp_len + sign_len, ip_h->saddr, ip_h->daddr,
+				csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
+					);
 		
-	        	// Update ip hdr
-		        ip_h->tot_len = htons(ip_len + sign_len);
-        		ip_h->check = 0;
-	        	ip_send_check(ip_h);
+	    // Update ip hdr
+	    ip_h->tot_len = htons(ip_len + sign_len);
+	    ip_h->check = 0;
+	    ip_send_check(ip_h);
 		
-		        skb_clear_hash(skb);
-		}			
+	    skb_clear_hash(skb);
+	  }			
 	}
 }
 /**
@@ -159,88 +159,85 @@ static void signkernel(struct sk_buff *skb)
  */
 static int verifykernel(struct sk_buff *skb)
 {
-
 	// Change the key as required. 
-	unsigned char *key = "super_secret_key_for_hmac";
-	unsigned long key_length = string_length(key);
-	// unsigned long key_length = 25;
-	unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;		
+	//unsigned char *key = "super_secret_key_for_hmac";
+	//unsigned long key_length = string_length(key);
+	//unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;		
 
 	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
-	unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH];
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH];
-	int err;
-	err = skb_ensure_writable(skb, skb_network_offset(skb) +
-				  sizeof(struct iphdr));
+	unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+	struct iphdr *ip_h = ip_hdr(skb);	
+	int err = skb_ensure_writable(skb, skb_network_offset(skb) +
+	            			  sizeof(struct iphdr));
 	if (unlikely(err))
-		return err;
+	  return err;
 
-	struct iphdr *ip_h = ip_hdr(skb);
 	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
 	if (ip_h->protocol == IPPROTO_TCP) {
-		// pr_info("Log way by using the command dmesg");
-		int ip_len = ntohs(ip_h->tot_len); 
-		int ip_pl_len = ip_len - ip_hdrlen(skb);
+	  // pr_info("Log way by using the command dmesg");
+	  int ip_len = ntohs(ip_h->tot_len); 
+	  int ip_pl_len = ip_len - ip_hdrlen(skb);
+	  struct tcphdr *tcp_h = tcp_hdr(skb);
+	  int tcp_len = ip_pl_len;
+	  int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 		
-		// Lock the packet
-		skb->csum_valid = 0;
+	  // Lock the packet
+	  skb->csum_valid = 0;
 
-		if (skb_is_nonlinear(skb)) {
-      		        skb_linearize(skb); 
-		}
+	  if (skb_is_nonlinear(skb)) {
+	    skb_linearize(skb); 
+	  }
+	  
+	  if(tcp_pl_len>HMAC_SHA1_DIGEST_LENGTH) {
+	    unsigned char *data;
+	    int i, valid=0;
+	    // issue with usb-eth dongle adding 2 bytes.
+	    data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
+	    memcpy(in_buf, data, sign_len);
 
-		struct tcphdr *tcp_h = tcp_hdr(skb);
-		int tcp_len = ip_pl_len;
-		int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-
-                if(tcp_pl_len>HMAC_SHA1_DIGEST_LENGTH) {
-         		unsigned char *data;
-			// issue with usb-eth dongle adding 2 bytes.
-	        	data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
-		        memcpy(in_buf, data, sign_len);
-
-         		// Remove sign from the packet
-	        	skb_trim(skb, skb->len - sign_len);
+	    // Remove sign from the packet
+	    skb_trim(skb, skb->len - sign_len);
 		
-		        // Update tcp hdr
-         		tcp_h->check = 0;
-	        	tcp_h->check = tcp_v4_check(
+	    // Update tcp hdr
+	    tcp_h->check = 0;
+	    tcp_h->check = tcp_v4_check(
 		        	tcp_len - sign_len, 
 			        ip_h->saddr, 
           			ip_h->daddr,
 	        		csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
-		        );
+					);
 		
-        		// Update ip hdr
-	        	ip_h->tot_len = htons(ip_len - sign_len);
-		        ip_h->check = 0;
-         		ip_send_check(ip_h);
+	    // Update ip hdr
+	    ip_h->tot_len = htons(ip_len - sign_len);
+	    ip_h->check = 0;
+	    ip_send_check(ip_h);
 		
-	        	skb_clear_hash(skb);
-			/*
-         		hmac_sha1_memory(key, key_length,
-					(char *) ip_h, ip_len - sign_len,
-					out_buf, &outlength);
-			*/
-   		        hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
+	    skb_clear_hash(skb);
+	    /*
+	      hmac_sha1_memory(key, key_length,
+	                       (char *) ip_h, ip_len - sign_len,
+                               out_buf, &outlength);
+	    */
+	    hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
 
-        		// Check if the signature is valid - If not, return -1
-	        	int valid = 0;
-		        int i;
+	    // Check if the signature is valid - If not, return -1
+	    valid = 0;
 
-			// Debug print-out of hash
-			for(i=0;i<sign_len;i++)
-			  pr_info("%x | %x", out_buf[i], in_buf[i]);
-			
-        		// raspberry pi is mauling the last 2 bytes.
-	        	for (i=0; i < (sign_len-2); i++) {
-		        	if (out_buf[i] != in_buf[i]) {
-			        	valid = -1;
-				        break;
-         			}
-	        	}
-		        return valid;
-        	}
+	    // raspberry pi is mauling the last 2 bytes.
+	    for (i=0; i < (sign_len-2); i++) {
+	      if (out_buf[i] != in_buf[i]) {
+		valid = -1;
+		break;
+	      }
+	    }
+	    // Debug print-out of hash
+	    if(valid == -1) {
+	      for(i=0;i<sign_len;i++)
+		pr_info("%x | %x", out_buf[i], in_buf[i]);
+	    }
+	    return valid;
+	  }
 	}
 	return 0;
 }

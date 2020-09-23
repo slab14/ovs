@@ -992,15 +992,15 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             }
         break;
     
-        case OVS_ACTION_ATTR_SIGN: {
+        case OVS_ACTION_ATTR_SIGN: 
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
               char *secret = "super_secret_key_for_hmac";
               add_sign(packet, secret);
           }
         break;
-        }
-  
-        case OVS_ACTION_ATTR_VERIFY: {
+
+
+        case OVS_ACTION_ATTR_VERIFY: 
           DP_PACKET_BATCH_FOR_EACH (i, packet, batch) {
               char *secret = "super_secret_key_for_hmac";
               bool valid_proof = verify_sign(packet, secret);
@@ -1009,14 +1009,13 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
               }
           }
         break;
-        }
 
-            if (last_action) {
-                /* We do not need to free the packets.
-                 * odp_execute_check_pkt_len() has stolen them. */
-                return;
-            }
-            break;
+        if (last_action) {
+        /* We do not need to free the packets.
+         * odp_execute_check_pkt_len() has stolen them. */
+          return;
+        }
+        break;
 
         case OVS_ACTION_ATTR_OUTPUT:
         case OVS_ACTION_ATTR_TUNNEL_PUSH:
@@ -1025,6 +1024,8 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
         case OVS_ACTION_ATTR_RECIRC:
         case OVS_ACTION_ATTR_CT:
         case OVS_ACTION_ATTR_UNSPEC:
+        case OVS_ACTION_ATTR_SIGNKERNEL:
+        case OVS_ACTION_ATTR_VERIFYKERNEL:
         case __OVS_ACTION_ATTR_MAX:
             OVS_NOT_REACHED();
         }

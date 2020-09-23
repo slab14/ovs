@@ -53,10 +53,6 @@
 
 #ifndef __ASSEMBLY__
 
-typedef unsigned int u32;
-typedef unsigned char u8;
-typedef unsigned long long u64;
-
 typedef struct {
   uint8_t pkt[1600];
   uint32_t pkt_size;

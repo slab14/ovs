@@ -3017,6 +3017,8 @@ dpif_ipfix_read_actions(const struct flow *flow,
         case OVS_ACTION_ATTR_CHECK_PKT_LEN:
         case OVS_ACTION_ATTR_SIGN:
         case OVS_ACTION_ATTR_VERIFY:
+        case OVS_ACTION_ATTR_SIGNKERNEL:
+        case OVS_ACTION_ATTR_VERIFYKERNEL:	  
         case OVS_ACTION_ATTR_UNSPEC:
         case __OVS_ACTION_ATTR_MAX:
         default:
