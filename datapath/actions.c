@@ -51,195 +51,195 @@
 
 
 /**
- * 		Function declaration for performing sign in kernel
+ *              Function declaration for performing sign in kernel
  */
 static void signkernel(struct sk_buff *skb);
 
 /**
- * 		Function declaration for performing verify in kernel
+ *              Function declaration for performing verify in kernel
  */
 static int verifykernel(struct sk_buff *skb);
 
 
 /**
- * 		Digest length for SHA1 HMAC calculation. 
- *		(Must be changed if any other signing scheme is used)
+ *              Digest length for SHA1 HMAC calculation. 
+ *              (Must be changed if any other signing scheme is used)
  */
 #define HMAC_SHA1_DIGEST_LENGTH 20
 
 
 
 /**
- *		Calculates the length of a character array within kernel
+ *             Calculates the length of a character array within kernel
  */
 unsigned long string_length(unsigned char *string_input) {
-	unsigned long length = 0;
-	int i = 0;
-	while(*(string_input + i) != '\0') {
-		++i;
-		length++;
-	}
-
-	return length;
+unsigned long length = 0;
+        int i = 0;
+        while(*(string_input + i) != '\0') {
+                ++i;
+                length++;
+        }
+        return length;
 }
 /** 
- *		Performs signing of a packet using HMAC-SHA1 in kernel.
+ *            Performs signing of a packet using HMAC-SHA1 in kernel.
  */
 static void signkernel(struct sk_buff *skb)
 {
         // Change the key as required. 
-	//unsigned char *key = "super_secret_key_for_hmac";
-	//unsigned long key_length = string_length(key);
-	//unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
+        //unsigned char *key = "super_secret_key_for_hmac";
+        //unsigned long key_length = string_length(key);
+        //unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
   
-	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
-	struct iphdr *ip_h = ip_hdr(skb);	
-	int err = skb_ensure_writable(skb, skb_network_offset(skb) +
-				      sizeof(struct iphdr));
-	if (unlikely(err))
-	  return;
-	
-	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
-	if (ip_h->protocol == IPPROTO_TCP) {
-	  // pr_info("Log way by using the command dmesg");
-	  int ip_len = ntohs(ip_h->tot_len); 
-	  int ip_pl_len = ip_len - ip_hdrlen(skb);
-	  struct tcphdr *tcp_h = tcp_hdr(skb);
-	  int tcp_len = ip_pl_len;
-	  // Modify the length of the TCP header	  
-	  int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
+        uint8_t sign_len = HMAC_SHA1_DIGEST_LENGTH;
+        unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+        struct iphdr *ip_h = ip_hdr(skb);
+        int err = skb_ensure_writable(skb, skb_network_offset(skb) +
+                                      sizeof(struct iphdr));
+        if (unlikely(err))
+          return;
 
-	  // Lock the packet
-	  skb->csum_valid = 0;
-	  if (skb_is_nonlinear(skb)) {
-	    skb_linearize(skb); 
-	  }
+        // udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
+        if (ip_h->protocol == IPPROTO_TCP) {
+          // pr_info("Log way by using the command dmesg");
+         int ip_len = ntohs(ip_h->tot_len); 
+         int ip_pl_len = ip_len - ip_hdrlen(skb);
+         struct tcphdr *tcp_h = tcp_hdr(skb);
+         int tcp_len = ip_pl_len;
+         // Modify the length of the TCP header	  
+         int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
+         // Lock the packet
+         skb->csum_valid = 0;
+         if (skb_is_nonlinear(skb))
+             skb_linearize(skb); 
 
-	  // Add sign to the packet
-	  if(tcp_pl_len>0) {
-	    unsigned char *new_data;
-	    int available_space = skb_tailroom(skb);
-	    
-	    /*
-	      hmac_sha1_memory(key, key_length,
-	                      (char *) ip_h, ip_len,
-                 	      out_buf, &outlength);
-	    */
-	    hyp_hmac((char *)ip_h, ip_len, out_buf);;
+          // Add sign to the packet
+         if(tcp_pl_len>0) {
+            unsigned char *new_data;
+            int available_space = skb_tailroom(skb);
+    
+            /*
+            hmac_sha1_memory(key, key_length,
+                            (char *) ip_h, ip_len,
+                            out_buf, &outlength);
+            */
+            hyp_hmac((char *)ip_h, ip_len, out_buf);;
 
-	    // Adding the contents of the sign to the packet
-	    if(available_space<sign_len) {
-	      int needed_space=sign_len-available_space+1;
-	      skb_padto(skb,skb->len+needed_space);
-	    }
+            // Make sure there is space for the signature
+            if(available_space<(sign_len+(1+4))){
+              sign_len = available_space-(1+4);
+              if((sign_len>HMAC_SHA1_DIGEST_LENGTH)||(sign_len<=1))
+                sign_len=0;
+            }
+            // Adding the contents of the sign to the packet
+            new_data = skb_put(skb, sign_len);
+            memcpy((void*)(new_data), out_buf, sign_len);
+            new_data = skb_put(skb, 1);
+            memcpy((void*)new_data, &sign_len, 1);
+            // Update tcp hdr
+            tcp_h->check = 0;
+            tcp_h->check = tcp_v4_check(
+                                        tcp_len + sign_len + 1, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)tcp_h, tcp_len + sign_len + 1, 0)
+                                       );
 
-	    new_data = skb_put(skb, sign_len);
-	    memcpy((void*)new_data, out_buf, sign_len);
+            // Update ip hdr
+            ip_h->tot_len = htons(ip_len + sign_len + 1);
+            ip_h->check = 0;
+            ip_send_check(ip_h);
 
-	    // Update tcp hdr
-	    tcp_h->check = 0;
-	    tcp_h->check = tcp_v4_check(
-          			tcp_len + sign_len, ip_h->saddr, ip_h->daddr,
-				csum_partial((char *)tcp_h, tcp_len + sign_len, 0)
-					);
-		
-	    // Update ip hdr
-	    ip_h->tot_len = htons(ip_len + sign_len);
-	    ip_h->check = 0;
-	    ip_send_check(ip_h);
-		
-	    skb_clear_hash(skb);
-	  }			
-	}
+            skb_clear_hash(skb);
+          }
+        }
 }
 /**
- *		Performs signature verification of a packet using HMAC-SHA1 in kernel.
- *		Returns 0 on successful verification; -1 if signature is not verified properly.
+ *                Performs signature verification of a packet using HMAC-SHA1 in kernel.
+ *                Returns 0 on successful verification; -1 if signature is not verified properly.
  */
 static int verifykernel(struct sk_buff *skb)
 {
-	// Change the key as required. 
-	//unsigned char *key = "super_secret_key_for_hmac";
-	//unsigned long key_length = string_length(key);
-	//unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;		
+        // Change the key as required. 
+        //unsigned char *key = "super_secret_key_for_hmac";
+        //unsigned long key_length = string_length(key);
+        //unsigned long outlength = HMAC_SHA1_DIGEST_LENGTH;
 
-	int sign_len = HMAC_SHA1_DIGEST_LENGTH;
-	unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
-	unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
-	struct iphdr *ip_h = ip_hdr(skb);	
-	int err = skb_ensure_writable(skb, skb_network_offset(skb) +
-	            			  sizeof(struct iphdr));
-	if (unlikely(err))
-	  return err;
+        uint8_t sign_len = HMAC_SHA1_DIGEST_LENGTH;
+        unsigned char in_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+        unsigned char out_buf[HMAC_SHA1_DIGEST_LENGTH]={0};
+        struct iphdr *ip_h = ip_hdr(skb);
+        int err = skb_ensure_writable(skb, skb_network_offset(skb) +
+                                      sizeof(struct iphdr));
+        if (unlikely(err))
+          return err;
 
-	// udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
-	if (ip_h->protocol == IPPROTO_TCP) {
-	  // pr_info("Log way by using the command dmesg");
-	  int ip_len = ntohs(ip_h->tot_len); 
-	  int ip_pl_len = ip_len - ip_hdrlen(skb);
-	  struct tcphdr *tcp_h = tcp_hdr(skb);
-	  int tcp_len = ip_pl_len;
-	  int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
-		
-	  // Lock the packet
-	  skb->csum_valid = 0;
+        // udp https://stackoverflow.com/questions/45986312/recalculating-tcp-checksum-in-linux-kernel-module
+        if (ip_h->protocol == IPPROTO_TCP) {
+          // pr_info("Log way by using the command dmesg");
+          int ip_len = ntohs(ip_h->tot_len); 
+          int ip_pl_len = ip_len - ip_hdrlen(skb);
+          struct tcphdr *tcp_h = tcp_hdr(skb);
+          int tcp_len = ip_pl_len;
+          int tcp_pl_len = tcp_len - tcp_hdrlen(skb);
 
-	  if (skb_is_nonlinear(skb)) {
-	    skb_linearize(skb); 
-	  }
-	  
-	  if(tcp_pl_len>HMAC_SHA1_DIGEST_LENGTH) {
-	    unsigned char *data;
-	    int i, valid=0;
-	    // issue with usb-eth dongle adding 2 bytes.
-	    data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - sign_len + (tcp_h->doff << 2));
-	    memcpy(in_buf, data, sign_len);
+          // Lock the packet
+          skb->csum_valid = 0;
 
-	    // Remove sign from the packet
-	    skb_trim(skb, skb->len - sign_len);
-		
-	    // Update tcp hdr
-	    tcp_h->check = 0;
-	    tcp_h->check = tcp_v4_check(
-		        	tcp_len - sign_len, 
-			        ip_h->saddr, 
-          			ip_h->daddr,
-	        		csum_partial((char *)tcp_h, tcp_len - sign_len, 0)
-					);
-		
-	    // Update ip hdr
-	    ip_h->tot_len = htons(ip_len - sign_len);
-	    ip_h->check = 0;
-	    ip_send_check(ip_h);
-		
-	    skb_clear_hash(skb);
-	    /*
-	      hmac_sha1_memory(key, key_length,
-	                       (char *) ip_h, ip_len - sign_len,
-                               out_buf, &outlength);
-	    */
-	    hyp_hmac((char *)ip_h, ip_len-sign_len, out_buf);
+         if (skb_is_nonlinear(skb)) 
+            skb_linearize(skb); 
+  
+         if(tcp_pl_len>0) {
+            unsigned char *data;
+            int i, valid=0;
+            // issue with usb-eth dongle adding 2 bytes.
+            data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - 1 + (tcp_h->doff << 2));
+            memcpy(&sign_len, data, 1);
+            if(sign_len>HMAC_SHA1_DIGEST_LENGTH)
+              return -1;
+            data = (unsigned char *)((unsigned char *)tcp_h + tcp_pl_len - 1 - sign_len + (tcp_h->doff << 2));	    
+            memcpy(in_buf, data, sign_len);
 
-	    // Check if the signature is valid - If not, return -1
-	    valid = 0;
+            // Remove sign from the packet
+            skb_trim(skb, skb->len - (sign_len+1));
 
-	    // raspberry pi is mauling the last 2 bytes.
-	    for (i=0; i < (sign_len-2); i++) {
-	      if (out_buf[i] != in_buf[i]) {
-		valid = -1;
-		break;
-	      }
-	    }
-	    // Debug print-out of hash
-	    if(valid == -1) {
-	      for(i=0;i<sign_len;i++)
-		pr_info("%x | %x", out_buf[i], in_buf[i]);
-	    }
-	    return valid;
-	  }
-	}
-	return 0;
+            // Update tcp hdr
+            tcp_h->check = 0;
+            tcp_h->check = tcp_v4_check(
+                                        tcp_len - sign_len - 1, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)tcp_h, tcp_len - sign_len - 1, 0)
+                                       );
+
+            // Update ip hdr
+            ip_h->tot_len = htons(ip_len - sign_len - 1);
+            ip_h->check = 0;
+            ip_send_check(ip_h);
+
+            skb_clear_hash(skb);
+            /*
+            hmac_sha1_memory(key, key_length,
+                             (char *) ip_h, ip_len - sign_len,
+                              out_buf, &outlength);
+            */
+            hyp_hmac((char *)ip_h, ip_len-sign_len-1, out_buf);
+
+            // Check if the signature is valid - If not, return -1
+            valid = 0;
+
+            for (i=0; i < sign_len; i++) {
+              if (out_buf[i] != in_buf[i]) {
+                 valid = -1;
+                 break;
+              }
+            }
+            // Debug print-out of hash
+            if(valid == -1) {
+              for(i=0;i<sign_len;i++)
+                pr_info("%x | %x", out_buf[i], in_buf[i]);
+            } else
+              memset(data, 0, (sign_len+1));
+            return valid;
+          }
+}
+return 0;
 }
 
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
@@ -1636,10 +1636,9 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 		}
 		case OVS_ACTION_ATTR_VERIFYKERNEL: {
-			int ret_val = verifykernel(skb);
-			if (ret_val != 0) {
+			err = verifykernel(skb);
+			if (err != 0) {
 				pr_info("Bad packet");
-				return -1;
 			}			
 			break;
 		} 
@@ -1647,8 +1646,8 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 		}
 
 		if (unlikely(err)) {
-				kfree_skb(skb);
-				return err;
+			kfree_skb(skb);
+			return err;
 		}
 	}
 
