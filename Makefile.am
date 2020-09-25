@@ -12,8 +12,6 @@ SUBDIRS = datapath
 AM_CPPFLAGS = $(SSL_CFLAGS)
 AM_LDFLAGS = $(SSL_LDFLAGS)
 AM_LDFLAGS += $(OVS_LDFLAGS)
-AM_LDFLAGS += -L./lib -luhcall
-
 
 
 if WIN32

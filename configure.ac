@@ -74,6 +74,7 @@ AC_SUBST([LT_REVISION])
 LT_AGE=libopenvswitch_lt_age
 AC_SUBST([LT_AGE])
 
+AC_SEARCH_LIBS([uhcall], [uhcall], [], [AC_MSG_ERROR([uhcall not found])])
 AC_SEARCH_LIBS([pow], [m])
 AC_SEARCH_LIBS([clock_gettime], [rt])
 AC_SEARCH_LIBS([timer_create], [rt])
