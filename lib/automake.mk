@@ -308,6 +308,7 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/tun-metadata.c \
 	lib/tun-metadata.h \
 	lib/uhcall.h \
+	lib/libuhcall.a \
 	lib/unaligned.h \
 	lib/unicode.c \
 	lib/unicode.h \
